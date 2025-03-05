@@ -7,7 +7,6 @@ import shutil
 import requests
 import winreg
 import socket
-from yt_dlp import YoutubeDL
 from pathlib import Path
 from datetime import datetime
 from PIL import Image
@@ -34,6 +33,16 @@ https://gallery.flet.dev/icons-browser/
 https://flet.dev/docs/controls/progressbar/
 yt-dlpのバージョンアップにexe化後にパッチを当てるなどして対応する方法について知りたい
 """
+
+# externalに保存したyt-dlpをimportできるようにする
+# main.pyのあるディレクトリを取得
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# externalディレクトリのパスを作成
+EXTERNAL_PATH = os.path.join(SCRIPT_DIR, "external")
+# externalディレクトリをsys.pathの先頭に追加
+sys.path.insert(0, EXTERNAL_PATH)
+# これでexternal/yt_dlp内のモジュールをimport可能になる
+from yt_dlp import YoutubeDL
 
 def get_download_folder():
     # Windowsの場合、レジストリから取得
