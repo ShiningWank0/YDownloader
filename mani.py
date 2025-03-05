@@ -94,7 +94,7 @@ class DefaultSettingsLoader:
     -movie_format: 動画ダウンロード時のファイル形式
     -music_quality: 音楽ダウンロード時のformat文字列
     -music_format: 音楽ダウンロード時のファイル形式
-    -base_dir: 保存先ディレクトリ(指定があれば、それに従うが、指定がない場合、各OSのダウンロードフォルダーになる)
+    -download_dir: 保存先ディレクトリ(指定があれば、それに従うが、指定がない場合、各OSのダウンロードフォルダーになる)
     -temp_dir: 一時ファイル保存場所(ユーザー操作なしを想定)。基本的には、スクリプトファイルがあるディレクトリの下
     -page_theme: アプリ全体のテーマ("LIGHT"または"DARK")
     """
@@ -121,7 +121,7 @@ class DefaultSettingsLoader:
             "movie_format",
             "music_quality",
             "music_format",
-            "base_dir",
+            "download_dir",
             "temp_dir",
             "page_theme"
         })
@@ -145,7 +145,7 @@ class DefaultSettingsLoader:
             )
         # ALLOWED_KEYSの各キーに対して非公開インスタンス変数を自動生成
         for key in self.ALLOWED_KEYS:
-            if key == "base_dir" and not self._config_data[key]:
+            if key == "download_dir" and not self._config_data[key]:
                 setattr(self, f"_{key}", self.download_folder)
             elif key == "temp_dir" and not self._config_data[key]:
                 setattr(self, f"_{key}", self.TEMP_DIR)
@@ -194,11 +194,12 @@ class DefaultSettingsLoader:
 
 class Download:
     def __init__(self, settings):
-        self.save_dir = settings.base_dir
+        self.save_dir = settings.download_dir
         self.retries = settings.retry_chance
         self.show_progress = settings.show_progress
         self.content_type = settings.content_type
         os.makedirs(self.save_dir, exist_ok=True)
+        self.temp_dir = settings.temp_dir
     
     def _sanitize_filename(self, s):
         """ファイル名として安全な文字列に変換する"""
@@ -229,7 +230,7 @@ class Download:
         except socket.error:
             return False
     
-    def _check_content_type(self, content_type=None, url=None):
+    def _check_content_type(self, content_type=None, key=None):
         """
         ダウンロードしたいコンテンツタイプに応じて、ダウンロード関数を適宜実施する関数
         
@@ -238,8 +239,15 @@ class Download:
         """
         if not content_type:
             content_type = self.content_type
+        if not key:
+            raise AttributeError("keyを適切に指定してください")
+        info_path = os.path.join(self.temp_dir, f"{key}.json")
+        with open(info_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        url = data.get("url", None)
         if not url:
             raise AttributeError("引数urlの値が不正です。")
+        title = data.get("title", "Unknown Title")
         if content_type == "movie":
             self.download_movie(url=url)
         elif content_type == "music":
@@ -397,7 +405,6 @@ class Download:
 class YDownloader:
     def __init__(self, settings, downloader):
         # 設定やグローバル変数相当の初期化
-        self.base_dir = settings.base_dir
         self.retries = settings.retry_chance
         self.temp_dir = settings.temp_dir
         self.pre_url_list = []
@@ -464,6 +471,7 @@ class YDownloader:
                         "overview": overview,
                         "thumbnail_path": thumbnail_path,
                         "url": url,
+                        "content_type": settings.content_type,
                     }
                     # JSON形式で保存
                     info_filename = f"{unique_id}.json"
@@ -557,7 +565,7 @@ class YDownloader:
                     raise ValueError("IDが不明です。")
                 video_title = ft.TextField(
                     label="タイトル",
-                    value=data.get("title"),
+                    value=data.get("title", "Unknown Title"),
                     adaptive=True
                 )
                 video_overview = ft.TextField(
@@ -640,27 +648,62 @@ class YDownloader:
                     ],
                     expand=True,
                 )
-                video_card = ft.Card(
-                    key=key,
-                    content=ft.Container(
-                        content=ft.Row(
+                info = ft.Row(
+                    controls=[
+                        video_thumbnail_img,
+                        about_info,
+                        ft.Column(
                             controls=[
-                                video_thumbnail_img,
-                                about_info,
-                                ft.Column(
-                                    controls=[
-                                        download_icon,
-                                        delete_icon
-                                    ],
-                                    alignment=ft.alignment.center,
-                                ),
+                                download_icon,
+                                delete_icon
                             ],
                             alignment=ft.alignment.center,
                         ),
+                    ],
+                    alignment=ft.alignment.center,
+                )
+                progress = ft.ProgressBar(
+                    visible=False,
+                    value=None,
+                )
+                # RadioGroupを作成(保存形式をMovieとMusicで選択(デフォルトを変えるのではなく、あくまでその動画単体の保存方法変更))
+                rg = ft.RadioGroup(
+                    value=settings.content_type,
+                    content=ft.Row([
+                        ft.Radio(value="movie", label="Movie"),
+                        ft.Radio(value="music", label="Music"),
+                    ]),
+                )
+                progress_container = ft.Container(
+                    content = ft.Column(
+                        controls=[
+                            ft.Container(
+                                content=rg,
+                                alignment=ft.alignment.center_right
+                            ),
+                            progress,
+                        ]
+                    ),
+                    expand=True, # 親の幅いっぱいに広がる
+                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                    border_radius=ft.border_radius.all(8)
+                )
+                video_card = ft.Card(
+                    key=key,
+                    content=ft.Container(
+                        content=ft.Column(
+                            controls=[
+                                info,
+                                progress_container
+                            ],
+                            spacing=10,
+                        ),
+                        padding=4,
                     ),
                     margin=0,
                 )
                 self.cards[key] = video_card
+                self.added_urls.append(url)
                 page.add(video_card)
                 page.update()
             except Exception as ex:
@@ -678,7 +721,7 @@ class YDownloader:
                 return
             tf.value = "" # add_video_cardは実行に時間がかかるため、先にクリアしておく
             page.update()
-            # 正常な値かどうかを確認&重複確認
+            # 正常な値かどうかを確認&重複確認(既に追加済みのカードのURLと重複がないかも確認)
             valid_urls = [s for s in map(str.strip, urls) if s and s not in self.pre_url_list and s not in self.added_urls]
             if valid_urls: # 追加するURLがある場合の処理
                 with self.condition_pre:
@@ -697,8 +740,8 @@ class YDownloader:
         updated_width = int(page.window.width / 4)
         updated_height = int(updated_width * 9 / 16)
         for key, card in self.cards.items():
-            row = card.content.content
-            thumbnail_img = row.controls[0]
+            info = card.content.content.controls[0]
+            thumbnail_img = info.controls[0]
             thumbnail_img.width = updated_width
             thumbnail_img.height = updated_height
             page.update()
@@ -709,17 +752,20 @@ class YDownloader:
         """
         try:
             target_card = self.cards[key]
-            target_row = target_card.content.content
-            target_about_info = target_row.controls[1]
+            target_column = target_card.content.content
+            target_info = target_column.controls[0]
+            target_about_info = target_info.controls[1]
             target_title = target_about_info.controls[0]
             target_upload_info = target_about_info.controls[1].controls[1]
             target_uploader = target_upload_info.controls[0]
             json_path = os.path.join(self.temp_dir, f"{key}.json")
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            target_url = data.get("url", None)
-            if not target_url:
-                raise AttributeError(f"JSONファイルにおけるURLの値が不正です。")
+            if not "title" in data or not "uploader" in data or "url" in data:
+                raise AttributeError("JSONファイルにtitleまたはuploaderまたはurlのキーがありません。")
+            data["title"] = target_title
+            data["uploader"] = target_uploader
+            print(f"{key}.jsonを更新しました")
         except Exception as ex:
             raise ex
     
@@ -798,15 +844,6 @@ class YDownloader:
         sb = ft.IconButton(
             icon=ft.icons.SEARCH_ROUNDED,
             on_click=lambda e: self.handle_url_submit(e, tf, page)
-        )
-        
-        # RadioGroupを作成(保存形式をMovieとMusicで選択(デフォルトを変えるのではなく、あくまでその動画単体の保存方法変更))
-        rg = ft.RadioGroup(
-            value=settings.content_type,
-            content=ft.Row([
-                ft.Radio(value="movie", label="Movie"),
-                ft.Radio(value="music", label="Music"),
-            ]), # RowをColumnにすると縦になる
         )
         
         # テーマ切り替えボタン

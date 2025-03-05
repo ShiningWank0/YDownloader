@@ -6,7 +6,7 @@
     "movie_format": "mp4",
     "music_quality": "bestaudio/best",
     "music_format": "mp3",
-    "base_dir": false,
+    "download_dir": false,
     "temp_dir": false,
     "page_theme": "LIGHT"
 }
