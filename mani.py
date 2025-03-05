@@ -15,6 +15,8 @@ import time
 import uuid
 import traceback
 import tempfile
+import logging
+from logging.handlers import RotatingFileHandler
 # TraceBackを使用することで、エラー原因の詳細が表示されるようにできる(全ての関数に実装していく予定)
 # 実行ファイル化した後を想定して、エラーログなどをファイルに出力するようにする
 
@@ -33,16 +35,6 @@ https://gallery.flet.dev/icons-browser/
 https://flet.dev/docs/controls/progressbar/
 yt-dlpのバージョンアップにexe化後にパッチを当てるなどして対応する方法について知りたい
 """
-
-# externalに保存したyt-dlpをimportできるようにする
-# main.pyのあるディレクトリを取得
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-# externalディレクトリのパスを作成
-EXTERNAL_PATH = os.path.join(SCRIPT_DIR, "external")
-# externalディレクトリをsys.pathの先頭に追加
-sys.path.insert(0, EXTERNAL_PATH)
-# これでexternal/yt_dlp内のモジュールをimport可能になる
-from yt_dlp import YoutubeDL
 
 def get_download_folder():
     # Windowsの場合、レジストリから取得
@@ -82,6 +74,91 @@ def get_download_folder():
         # 設定がなければホームディレクトリ直下のDownloadsを返す
         return str(Path.home() / "Downloads")
 
+def get_script_dir():
+    """クラスプラットフォームを考慮した、スクリプトファイルあるいは実行ファイルの絶対パスの取得関数"""
+    if getattr(sys, "frozen", False): # PyInstaller, cx_Freezeなど
+        return os.path.dirname(sys.executable)
+    elif "__compiled__" in globals():  # Nuitka
+        return os.path.dirname(sys.executable)
+    else:
+        return os.path.dirname(os.path.abspath(__file__))
+
+def setup_logging():
+    """ログファイルを使用したログの記録のセットアップ関数"""
+    log_file = os.path.join(get_script_dir(), "app.log")
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+    # ログファイルにエラー情報や一般的なログを記録する
+    # ここでは、平均100バイト/行として、10000行程度で約1MBになるよう設定(調整が必要)
+    rotating_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=1000000, 
+        backupCount=1,
+        encoding="utf-8"
+    )
+    # ログのフォーマット設定(時刻、ログレベル、メッセージ)
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    rotating_handler.setFormatter(formatter)
+    # loggerにhandlerをセット
+    logger.addHandler(rotating_handler)
+    
+    # コンソールへの出力(開発中はこちらも有用)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+# externalに保存したyt-dlpをimportできるようにする
+# main.pyのあるディレクトリを取得
+SCRIPT_DIR = get_script_dir()
+# externalディレクトリのパスを作成
+EXTERNAL_PATH = os.path.join(SCRIPT_DIR, "external")
+# externalディレクトリをsys.pathの先頭に追加
+sys.path.insert(0, EXTERNAL_PATH)
+# これでexternal/yt_dlp内のモジュールをimport可能になる
+from yt_dlp import YoutubeDL
+
+"""
+def main(page: ft.Page):
+    page.title = "My Flet Application"
+
+    # エラーを発生させる関数の例
+    def cause_error(e):
+        try:
+            # わざとゼロ除算エラーを発生させる
+            1 / 0
+        except Exception as err:
+            # 詳細なトレースバック情報をログに出力（exc_info=Trueで詳細情報が出る）
+            logging.error("A critical error occurred", exc_info=True)
+            # tracebackモジュールを使って文字列としても取得可能
+            tb_str = traceback.format_exc()
+            logging.debug("Traceback details:\n" + tb_str)
+            
+            # Fletでユーザー向けのエラーダイアログを表示
+            error_dialog = ft.AlertDialog(
+                title=ft.Text("Error"),
+                content=ft.Text("A critical error occurred. Please check the log file for details."),
+                actions=[
+                    ft.TextButton("OK", on_click=lambda e: close_dialog(page))
+                ]
+            )
+            page.dialog = error_dialog
+            page.dialog.open = True
+            page.update()
+
+    def close_dialog(page: ft.Page):
+        page.dialog.open = False
+        page.update()
+
+    btn = ft.ElevatedButton("Cause Error", on_click=cause_error)
+    page.add(btn)
+
+if __name__ == '__main__':
+    setup_logging()
+    ft.app(target=main)
+"""
+
+
 class DefaultSettingsLoader:
     """
     設定ローダー
@@ -103,7 +180,7 @@ class DefaultSettingsLoader:
         # print("DefaultSettingsLoaderの__init__開始") # デバッグ用
         
         # このスクリプトが存在するディレクトリの絶対パスを取得
-        self.SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+        self.SCRIPT_DIR = get_script_dir()
         # config.jsonへのパスを作成
         self.CONFIG_PATH = os.path.join(self.SCRIPT_DIR, "config", "config.json")
         # 一時ファイル保存場所
@@ -437,6 +514,7 @@ class YDownloader:
                 with YoutubeDL(ydl_opts) as ydl:
                     # ユニークなIDを生成
                     unique_id = str(uuid.uuid4().hex)
+                    print(f"{url}に対してpreview_video_infoを実行します。")
                     # 動画情報を取得
                     info = ydl.extract_info(url, download=False)
                     # タイトルを取得して安全なファイル名に変換
@@ -634,8 +712,13 @@ class YDownloader:
                         fit=ft.ImageFit.CONTAIN,
                         border_radius=ft.border_radius.all(10),
                     )
-                delete_icon = ft.IconButton(icon=ft.icons.DELETE_FOREVER_ROUNDED)
-                download_icon = ft.IconButton(icon=ft.icons.DOWNLOAD)
+                delete_icon = ft.IconButton(
+                    icon=ft.icons.DELETE_FOREVER_ROUNDED
+                )
+                download_icon = ft.IconButton(
+                    icon=ft.icons.DOWNLOAD,
+                    on_click=lambda e: self.download_video_by_key(e, key)
+                )
                 about_info = ft.Column(
                     controls=[
                         video_title,
@@ -758,13 +841,16 @@ class YDownloader:
             target_title = target_about_info.controls[0]
             target_upload_info = target_about_info.controls[1].controls[1]
             target_uploader = target_upload_info.controls[0]
+            target_content_type = target_column.controls[1].content.controls[0].content.value
+            # print(target_title, target_uploader, target_content_type) # デバッグ用
             json_path = os.path.join(self.temp_dir, f"{key}.json")
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            if not "title" in data or not "uploader" in data or "url" in data:
+            if not "title" in data or not "uploader" in data or not "url" in data:
                 raise AttributeError("JSONファイルにtitleまたはuploaderまたはurlのキーがありません。")
-            data["title"] = target_title
-            data["uploader"] = target_uploader
+            data["title"] = target_title.value
+            data["uploader"] = target_uploader.value
+            data["content_type"] = target_content_type
             print(f"{key}.jsonを更新しました")
         except Exception as ex:
             raise ex
@@ -797,7 +883,7 @@ class YDownloader:
             padding=ft.padding.all(5),
         )
         # フォントの読み込み
-        font_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts", "ZenOldMincho")
+        font_dir = os.path.join(get_script_dir(), "assets", "fonts", "ZenOldMincho")
         page.fonts = {
             "ZenOldMincho-Black": os.path.join(font_dir, "ZenOldMincho-Black.ttf"),
             "ZenOldMincho-Bold": os.path.join(font_dir, "ZenOldMincho-Bold.ttf"),
