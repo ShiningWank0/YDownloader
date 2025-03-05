@@ -1,0 +1,3 @@
+yt-dlp
+flet==0.24.1
+Pillow
