@@ -2,57 +2,77 @@
 
 [![GitHub Actions](https://github.com/your-repo/YDownloader/actions/workflows/build.yml/badge.svg)](https://github.com/your-repo/YDownloader/actions)
 
-YDownloader is a GUI-based downloader application built with Flet, designed for easy video downloading via URLs. The app seamlessly integrates with yt-dlp, ensuring that updates can be applied with minimal changes.
+*_Elegant video downloading made simple_*  
+*シンプルで洗練された動画ダウンロード体験*
 
-YDownloaderは、Fletを用いたGUIベースのダウンローダーアプリです。URLを入力するだけで簡単に動画をダウンロードできます。yt-dlpとの統合をスムーズにし、最小限の変更でアップデートが可能です。
+---
 
-## 🌟 Features | 特徴
+## Overview / 概要
 
-### 🌍 English
-- **Intuitive GUI:** Enter a video URL in the search bar and press the search icon or `Enter` to load the video.
-- **Multiline Input:** Use `Shift + Enter` to insert a new line in the search bar.
-- **Easy yt-dlp Updates:** Place `yt-dlp` inside the `external` folder. This allows applying patches to update yt-dlp without modifying the main application.
-- **Automated Builds:** Installers and patches are generated automatically using **GitHub Actions**, ensuring smooth updates.
+*_YDownloader is a sleek, GUI-based video downloader built with [Flet](https://flet.dev/). Seamlessly integrated with [yt-dlp](https://github.com/yt-dlp/yt-dlp), it lets you download videos by simply pasting a URL. Enjoy effortless updates and a modern interface._*
 
-### 🇯🇵 日本語
-- **直感的なGUI:** 検索欄にダウンロードしたい動画のURLを入力し、検索アイコンまたは `Enter` を押すと動画の読み込みが行われます。
-- **複数行入力対応:** `Shift + Enter` を押すことで検索欄内で改行できます。
-- **簡単なyt-dlpの更新:** `external` フォルダーに `yt-dlp` を配置することで、パッチを適用するだけで最新版に更新できる仕組みになっています。
-- **自動ビルド:** **GitHub Actions** を使用してインストーラーやパッチを自動生成し、スムーズなアップデートを提供します。
+YDownloaderは、[Flet](https://flet.dev/) を使って構築された洗練されたGUI動画ダウンローダーです。URLを貼るだけで[yt-dlp](https://github.com/yt-dlp/yt-dlp)とのシームレスな連携により、簡単に動画をダウンロードできます。手間いらずのアップデートとモダンな操作性を提供します。
 
-## 📥 Installation | インストール方法
+---
 
-<details>
-  <summary>English</summary>
+## Features / 特徴
 
-1. **Download the installer** from [Releases](https://github.com/your-repo/YDownloader/releases).
-2. Run the installer and follow the on-screen instructions.
-3. Start the application and enter a URL to begin downloading.
-4. Place `yt-dlp` inside the `external` folder to keep it updated easily.
+- **Intuitive Interface / 直感的な操作性**  
+  *_Paste a video URL and press `Enter` or click the search icon._*  
+  動画URLを入力し、`Enter`キーまたは検索アイコンをクリックするだけで操作可能。
 
-</details>
+- **Multiline Input / 複数行入力**  
+  *_Use `Shift + Enter` to add line breaks._*  
+  `Shift + Enter`で改行ができます。
 
-<details>
-  <summary>日本語</summary>
+- **Seamless Updates / シームレスな更新**  
+  *_Simply update yt-dlp by replacing the executable in the `external` folder._*  
+  `external`フォルダ内の実行ファイルを置き換えるだけでyt-dlpを更新可能。
 
-1. **インストーラーをダウンロード** [Releases](https://github.com/your-repo/YDownloader/releases) からダウンロードしてください。
-2. インストーラーを実行し、画面の指示に従ってインストールしてください。
-3. アプリを起動し、URLを入力してダウンロードを開始します。
-4. `external` フォルダーに `yt-dlp` を配置すると、簡単に更新できます。
+- **Automated Builds / 自動ビルド**  
+  *_GitHub Actions automatically generate installers and patches._*  
+  GitHub Actionsにより、インストーラーやパッチが自動生成されます。
 
-</details>
+---
 
-## 🛠 Development | 開発
+## Installation / インストール方法
 
-<details>
-  <summary>English</summary>
+1. **Download / ダウンロード**  
+   *_Get the installer from the [Releases](https://github.com/your-repo/YDownloader/releases) page._*  
+   [Releases](https://github.com/your-repo/YDownloader/releases)からインストーラーを入手してください。
 
-### Requirements
-- Python 3.9+
-- Flet
-- yt-dlp
+2. **Install / インストール**  
+   *_Run the installer and follow the on-screen instructions._*  
+   インストーラーを実行し、画面の指示に従ってインストールしてください。
 
-### Setup
+3. **Launch / 起動**  
+   *_Open YDownloader and paste a video URL to begin downloading._*  
+   YDownloaderを起動し、動画URLを入力してダウンロードを開始してください。
+
+4. **Update / 更新**  
+   *_Replace the yt-dlp executable in the `external` folder as needed._*  
+   `external`フォルダ内のyt-dlp実行ファイルを最新のものに置き換えてください。
+
+---
+
+## Usage / 使い方
+
+- *_Paste the URL into the search bar and press `Enter` (or click the search icon) to load video details and start downloading._*  
+  検索バーにURLを貼り付け、`Enter`キー（または検索アイコン）をクリックすると動画情報が表示され、ダウンロードが始まります。
+
+- *_Updating is as simple as replacing the yt-dlp file in the `external` folder._*  
+  更新は、`external`フォルダ内のyt-dlpファイルを置き換えるだけで完了します。
+
+---
+
+## Development / 開発
+
+**Requirements / 必要条件**  
+- Python 3.10+ (Python 3.10以上)  
+- [Flet](https://flet.dev/)  
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+
+**Setup / セットアップ:**
 ```sh
 git clone https://github.com/your-repo/YDownloader.git
 cd YDownloader

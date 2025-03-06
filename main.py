@@ -17,6 +17,7 @@ import traceback
 import tempfile
 import logging
 from logging.handlers import RotatingFileHandler
+from appdirs import user_data_dir
 # TraceBackを使用することで、エラー原因の詳細が表示されるようにできる(全ての関数に実装していく予定)
 # 実行ファイル化した後を想定して、エラーログなどをファイルに出力するようにする
 
@@ -76,10 +77,13 @@ def get_download_folder():
 
 def get_script_dir():
     """クラスプラットフォームを考慮した、スクリプトファイルあるいは実行ファイルの絶対パスの取得関数"""
-    if getattr(sys, "frozen", False): # PyInstaller, cx_Freezeなど
-        return os.path.dirname(sys.executable)
-    elif "__compiled__" in globals():  # Nuitka
-        return os.path.dirname(sys.executable)
+    # PyInstaller, cx_Freeze, Nuitkaによる実行ファイル化後に供えた処理
+    if getattr(sys, "frozen", False) or "__compiled__" in globals():
+        candidate = os.path.join(os.path.dirname(os.path.abspath(__file__)), "external")
+        if os.path.isdir(candidate):
+            return os.path.dirname(os.path.abspath(__file__))
+        else:
+            return os.path.dirname(sys.executable)
     else:
         return os.path.dirname(os.path.abspath(__file__))
 
@@ -89,10 +93,11 @@ def setup_logging():
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
     # ログファイルにエラー情報や一般的なログを記録する
-    # ここでは、平均100バイト/行として、10000行程度で約1MBになるよう設定(調整が必要)
+    # ここでは、平均100バイト/行として、1000行程度で約100KBになるよう設定(調整が必要)
+    # 100KBに達すると、バックアップファイルとして一つだけ残され、新しいログファイルが作成される
     rotating_handler = RotatingFileHandler(
         log_file,
-        maxBytes=1000000, 
+        maxBytes=100000, 
         backupCount=1,
         encoding="utf-8"
     )
@@ -182,7 +187,7 @@ class DefaultSettingsLoader:
         # このスクリプトが存在するディレクトリの絶対パスを取得
         self.SCRIPT_DIR = get_script_dir()
         # config.jsonへのパスを作成
-        self.CONFIG_PATH = os.path.join(self.SCRIPT_DIR, "config", "config.json")
+        self.CONFIG_PATH = os.path.join(self.SCRIPT_DIR, "configs", "config.json")
         # 一時ファイル保存場所
         self.TEMP_DIR = os.path.join(self.SCRIPT_DIR, ".temp")
         # なければ作成
