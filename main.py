@@ -283,9 +283,35 @@ class Download:
         os.makedirs(self.save_dir, exist_ok=True)
         self.temp_dir = settings.temp_dir
     
-    def _sanitize_filename(self, s):
-        """ファイル名として安全な文字列に変換する"""
-        return re.sub(r'[\\/*?:"<>|]', "_", s)
+    def _sanitize_filename(self, filename: str, replacement: str = "_") -> str:
+        """
+        ファイル名に使用できない文字を削除または置き換える
+        Windows, Mac, Linux 全てに対応(ユーザーのOSに合わせて自動調整されるように)
+        :param filename:変換したいファイル名
+        :param replacement: 置き換え文字(デフォルトは"_")
+        :return: 安全なファイル名
+        """
+        # 共通の禁止文字(Windows, Linux, macOS)
+        forbidden_chars = r'[\x00-\x1f]'  # 制御文字（ASCII 0-31）
+        if os.name == 'nt': # Windowsの場合
+            forbidden_chars += r'[\\/*?:"<>|]'
+        else: # Linux/macOSの場合
+            forbidden_chars += r'[/]'  # スラッシュはディレクトリ区切りのため禁止
+        # 禁止文字を指定の文字(デフォルト"_")に置換
+        filename = re.sub(forbidden_chars, replacement, filename)
+        # Windowsでは先頭・末尾の空白やピリオドを削除
+        if os.name == 'nt':
+            filename = filename.strip(" .")
+            # Windowsの予約デバイス名を回避
+            reserved_names = {
+                "CON", "PRN", "AUX", "NUL",
+                *(f"COM{i}" for i in range(1, 10)),
+                *(f"LPT{i}" for i in range(1, 10)),
+            }
+            if filename.upper() in reserved_names:
+                filename += "_safe"
+        # 空のファイル名を回避
+        return filename if filename else "default_filename"
     
     def _progress_hook(self, status):
         """
@@ -312,15 +338,12 @@ class Download:
         except socket.error:
             return False
     
-    def _check_content_type(self, content_type=None, key=None):
+    def _check_content_type(self, key=None):
         """
         ダウンロードしたいコンテンツタイプに応じて、ダウンロード関数を適宜実施する関数
         
-        :param content_type: movieかmusicを指定。指定がない時はデフォルト値に従う
         :param url: ダウンロードするコンテンツのURL。指定がない時、AttirbuteErrorを起こす
         """
-        if not content_type:
-            content_type = self.content_type
         if not key:
             raise AttributeError("keyを適切に指定してください")
         info_path = os.path.join(self.temp_dir, f"{key}.json")
@@ -328,14 +351,16 @@ class Download:
             data = json.load(f)
         url = data.get("url", None)
         if not url:
-            raise AttributeError("引数urlの値が不正です。")
+            raise AttributeError("JSONファイルにおけるurlの値が不正です。")
         title = data.get("title", "Unknown Title")
+        # uploader = data.get("uploader", "Unknown") # 後で作曲者とかの部分に使用したい
+        content_type = data.get("content_type", None)
         if content_type == "movie":
-            self.download_movie(url=url)
+            self.download_movie(url=url, filename=title)
         elif content_type == "music":
-            self.download_music(url=url)
+            self.download_music(url=url, filename=title)
         else:
-            raise AttributeError("引数content_typeの値が不正です。")
+            raise AttributeError("content_typeの値が不正です。")
     
     def download_overview(self, url=False, max_comments=50, process_callback=None):
         """
@@ -390,7 +415,7 @@ class Download:
                     print("Max retry limit reached. Aborting metadata download.")
                     raise
     
-    def download_movie(self, url=False):
+    def download_movie(self, url=False, filename=None):
         """
         指定されたURLの動画をダウンロードする。
         settings.content_typeが "movie" の場合、実行される。
@@ -398,6 +423,7 @@ class Download:
         ファイル形式は、settings.movie_formatをもとに選択される。
         
         :param url: ダウンロード対象のコンテンツURL(Falseの場合はエラー)
+        :param filename: 保存する際のファイル名(拡張子は自動付与)
         """
         if not url:
             raise Exception("Error: url is not defined")
@@ -409,9 +435,15 @@ class Download:
         quality_format = settings.movie_quality
         movie_format = settings.movie_format
         
+        # filenameが指定されていれば、その名前に拡張子を付与して保存する
+        if filename:
+            outtmpl = os.path.join(self.save_dir, f"{filename}.%(ext)s")
+        else:
+            outtmpl = os.path.join(self.save_dir, "%(title)s.%(ext)s")
+        
         ydl_opts = {
             "format": quality_format,
-            "outtmpl": os.path.join(self.save_dir, "%(title)s.%(ext)s"),
+            "outtmpl": outtmpl,
             "merge_output_format": movie_format,
             "postprocessors": [{ 
                 "key": "FFmpegVideoRemuxer",
@@ -437,7 +469,7 @@ class Download:
                     print("Max retry limit reached. Aborting movie download.")
                     raise
     
-    def download_music(self, url=False):
+    def download_music(self, url=False, filename=None):
         """
         指定されたURLの音楽をダウンロードする。
         settings.content_typeが "music" の場合、実行される。
@@ -455,6 +487,12 @@ class Download:
         
         quality_format = settings.music_quality
         music_format = settings.music_format
+        
+        # filenameが指定されていれば、その名前に拡張子を付与して保存する
+        if filename:
+            outtmpl = os.path.join(self.save_dir, f"{filename}.%(ext)s")
+        else:
+            outtmpl = os.path.join(self.save_dir, "%(title)s.%(ext)s")
         
         ydl_opts = {
             "format": quality_format,
@@ -525,7 +563,7 @@ class YDownloader:
                 unique_id = str(uuid.uuid4().hex)
                 # タイトルを取得して安全なファイル名に変換
                 title = info.get("title", "Unknown Title")
-                safe_title = re.sub(r'[\\/*?:"<>|]', "_", title)
+                safe_title = self.downloader._sanitize_filename(title)
                 # 動画の投稿者名を取得
                 uploader = info.get("uploader", "Unknown Uploader")
                 # 動画の概要欄情報の取得
@@ -964,13 +1002,14 @@ class YDownloader:
                 data = json.load(f)
             if not "title" in data or not "uploader" in data or not "url" in data:
                 raise AttributeError("JSONファイルにtitleまたはuploaderまたはurlのキーがありません。")
-            data["title"] = target_title.value
+            data["title"] = self.downloader._sanitize_filename(target_title.value)
             # print(data["title"]) # デバッグ用
             data["uploader"] = target_uploader.value
             # print(data["uploader"]) # デバッグ用
             data["content_type"] = target_content_type
             # print(data["content_type"]) # デバッグ用
             print(f"{key}.jsonを更新しました")
+            self.downloader._check_content_type(key=key)
         except Exception as ex:
             raise ex
     
