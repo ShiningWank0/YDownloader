@@ -493,6 +493,7 @@ class YDownloader:
         self.pre_total_urls = 0
         self.pre_current_urls = 0
         self.cards = {}
+        # self.card_uids = {}
         self.added_urls = []
         self.condition_pre = threading.Condition()
         self.downloader = downloader
@@ -516,12 +517,12 @@ class YDownloader:
         attempt = 0
         while attempt < self.retries:
             try:
+                print(f"{url}に対してpreview_video_infoを実行します。") # デバッグ用
                 with YoutubeDL(ydl_opts) as ydl:
                     # 動画情報を取得
                     info = ydl.extract_info(url, download=False)
                 # ユニークなIDを生成
                 unique_id = str(uuid.uuid4().hex)
-                print(f"{url}に対してpreview_video_infoを実行します。")
                 # タイトルを取得して安全なファイル名に変換
                 title = info.get("title", "Unknown Title")
                 safe_title = re.sub(r'[\\/*?:"<>|]', "_", title)
@@ -669,34 +670,17 @@ class YDownloader:
                     video_title = ft.TextField(
                         label="タイトル",
                         value=data.get("title", "Unknown Title"),
-                        adaptive=True
-                    )
-                    video_overview = ft.TextField(
-                        label="概要",
-                        value=data.get("overview") if data.get("overview") else "概要欄情報が見つかりませんでした。",
-                        multiline=True,
-                        max_lines=2, # カードの高さが画像に合わせて自動調整されるようにして、さらにmax_linesをアダプティブに変更されるようにしたい
-                        expand=True,
+                        adaptive=True,
                     )
                     video_date = ft.Text(
-                        value=data.get("upload_date"),
+                        value=data.get("upload_date", "Unknown"),
                     )
                     video_uploader = ft.TextField(
                         label="投稿者",
-                        value=data.get("uploader"),
+                        value=data.get("uploader", "Unknown"),
                         adaptive=True,
                     )
-                    video_upload_info = ft.Column(
-                        controls=[
-                            video_uploader, # この部分はcenter表示のまま
-                            ft.Container(
-                                content=ft.Row(
-                                    controls=[video_date],
-                                ),
-                            ),
-                        ],
-                    )
-                    thumbnail_img_src = data.get("thumbnail_path")
+                    thumbnail_img_src = data.get("thumbnail_path", None)
                     if not thumbnail_img_src:
                         # サムネイルがない場合は、compute_perfect_sizeでプレースホルダー画像を生成
                         placeholder = self.compute_perfect_size(page, 0, 0, key)
@@ -737,21 +721,48 @@ class YDownloader:
                             fit=ft.ImageFit.CONTAIN,
                             border_radius=ft.border_radius.all(10),
                         )
+                    # RadioGroupを作成
+                    # 保存形式を個々に選択できるようにする(MovieとMusic)
+                    rg = ft.RadioGroup(
+                        value=settings.content_type,
+                        content=ft.Row([
+                            ft.Radio(value="movie", label="Movie"),
+                            ft.Radio(value="music", label="Music"),
+                        ]),
+                    )
                     delete_icon = ft.IconButton(
-                        icon=ft.icons.DELETE_FOREVER_ROUNDED
+                        icon=ft.icons.DELETE_FOREVER_ROUNDED,
+                        on_click=lambda e: self.remove_card(e, key, page, url)
                     )
                     download_icon = ft.IconButton(
                         icon=ft.icons.DOWNLOAD,
-                        on_click=lambda e: self.download_video_by_key(e, key)
+                        on_click=lambda e: self.download_video_by_key(e, key, page)
+                    )
+                    progress = ft.ProgressBar(
+                        visible=False,
+                        value=None,
+                    )
+                    progress_container = ft.Container(
+                        content=progress,
+                        expand=True, # 親であるCardの幅いっぱいに広がるように
+                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                        border_radius=ft.border_radius.all(8),
                     )
                     about_info = ft.Column(
                         controls=[
                             video_title,
                             ft.Row(
                                 controls=[
-                                    video_overview,
-                                    video_upload_info
-                                ]
+                                    video_uploader,
+                                    ft.Row(
+                                        controls=[
+                                            rg,
+                                            video_date,
+                                        ],
+                                        alignment=ft.MainAxisAlignment.END
+                                    ),
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN
                             )
                         ],
                         expand=True,
@@ -763,38 +774,12 @@ class YDownloader:
                             ft.Column(
                                 controls=[
                                     download_icon,
-                                    delete_icon
+                                    delete_icon,
                                 ],
                                 alignment=ft.alignment.center,
                             ),
                         ],
                         alignment=ft.alignment.center,
-                    )
-                    progress = ft.ProgressBar(
-                        visible=False,
-                        value=None,
-                    )
-                    # RadioGroupを作成(保存形式をMovieとMusicで選択(デフォルトを変えるのではなく、あくまでその動画単体の保存方法変更))
-                    rg = ft.RadioGroup(
-                        value=settings.content_type,
-                        content=ft.Row([
-                            ft.Radio(value="movie", label="Movie"),
-                            ft.Radio(value="music", label="Music"),
-                        ]),
-                    )
-                    progress_container = ft.Container(
-                        content = ft.Column(
-                            controls=[
-                                ft.Container(
-                                    content=rg,
-                                    alignment=ft.alignment.center_right
-                                ),
-                                progress,
-                            ]
-                        ),
-                        expand=True, # 親の幅いっぱいに広がる
-                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                        border_radius=ft.border_radius.all(8)
                     )
                     video_card = ft.Card(
                         key=key,
@@ -802,7 +787,7 @@ class YDownloader:
                             content=ft.Column(
                                 controls=[
                                     info,
-                                    progress_container
+                                    progress_container,
                                 ],
                                 spacing=10,
                             ),
@@ -811,11 +796,107 @@ class YDownloader:
                         margin=0,
                     )
                     self.cards[key] = video_card
-                    self.added_urls.append(url)
                     page.add(video_card)
-                    page.update()
+                    # self.card_uids[key] = video_card.uid
+                    self.added_urls.append(url)
                 else:
-                    print("ここにプレイリスト情報をカードにして追加する")
+                    # ここはプレイリストのリンクが入力されて、メタデータが正常に入手できなかった場合
+                    playlist_title = ft.TextField(
+                        label="プレイリスト名",
+                        value="Unknown",
+                        adaptive=True,
+                    )
+                    playlist_date = ft.Text(
+                        value="Unknown",
+                    )
+                    playlist_uploader = ft.TextField(
+                        label="投稿者",
+                        value="Unknown",
+                        adaptive=True,
+                    )
+                    placeholder_playlist = self.compute_perfect_size(page, 0, 0, key)
+                    playlist_thumb_img = ft.Image(
+                        src=placeholder_playlist["src"],
+                        width=placeholder_playlist["width"],
+                        height=placeholder_playlist["height"],
+                        fit=ft.ImageFit.CONTAIN,
+                        border_radius=ft.border_radius.all(10),
+                    )
+                    playlist_rg = ft.RadioGroup(
+                        value=settings.content_type,
+                        content=ft.Row([
+                            ft.Radio(value="movie", label="Movie"),
+                            ft.Radio(value="music", label="Music"),
+                        ]),
+                    )
+                    playlist_delete_icon = ft.IconButton(
+                        icon=ft.icons.DELETE_FOREVER_ROUNDED,
+                        on_click=lambda e: self.remove_card(e, key, page, url)
+                    )
+                    playlist_download_icon = ft.IconButton(
+                        icon=ft.icons.DOWNLOAD,
+                        on_click=lambda e: self.download_video_by_key(e, key, page)
+                    )
+                    playlist_progress = ft.ProgressBar(
+                        visible=False,
+                        value=None,
+                    )
+                    playlist_progress_container = ft.Container(
+                        content=playlist_progress,
+                        expand=True,
+                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                        border_radius=ft.border_radius.all(8),
+                    )
+                    playlist_about_info = ft.Column(
+                        controls=[
+                            playlist_title,
+                            ft.Row(
+                                controls=[
+                                    playlist_uploader,
+                                    ft.Row(
+                                        controls=[
+                                            playlist_rg,
+                                            playlist_date,
+                                        ],
+                                        alignment=ft.MainAxisAlignment.END
+                                    ),
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                            )
+                        ],
+                        expand=True,
+                    )
+                    playlist_info = ft.Row(
+                        controls=[
+                            playlist_thumb_img,
+                            playlist_about_info,
+                            ft.Column(
+                                controls=[
+                                    playlist_download_icon,
+                                    playlist_delete_icon,
+                                ],
+                                alignment=ft.alignment.center,
+                            ),
+                        ],
+                        alignment=ft.alignment.center,
+                    )
+                    playlist_card = ft.Card(
+                        key=key,
+                        content=ft.Container(
+                            content=ft.Column(
+                                controls=[
+                                    playlist_info,
+                                    playlist_progress_container,
+                                ],
+                                spacing=10,
+                            ),
+                            padding=4,
+                        ),
+                        margin=0,
+                    )
+                    self.cards[key] = playlist_card
+                    self.added_urls.append(url)
+                    page.add(playlist_card)
             except Exception as ex:
                 print(f"Error adding video card: {ex}")
             time.sleep(0.5) # 連続処理の負荷を軽減
@@ -856,29 +937,54 @@ class YDownloader:
             thumbnail_img.height = updated_height
             page.update()
     
-    def download_video_by_key(self, e, key):
+    def download_video_by_key(self, e, key, page):
         """
         ダウンロードボタンが押されたカードの動画をダウンロードするコールバック関数
         """
         try:
+            # ページ上から最新のCardを取得(保存していた参照ではなく、現在のコントロールツリーから)
+            # print(self.card_uids) # デバッグ用
+            # target_card = page.get_control(self.card_uids[key]) # この方法でもできる
+            # print(target_card) # デバッグ用
+            # dictであるcardsから参照
             target_card = self.cards[key]
             target_column = target_card.content.content
             target_info = target_column.controls[0]
+            # プログレスバーを見えるようにする
+            target_progress_bar = target_column.controls[1].content
+            target_progress_bar.visible = True # これでプログレスバーが見えるようになる(page.updateが必要)
+            page.update()
             target_about_info = target_info.controls[1]
             target_title = target_about_info.controls[0]
             target_upload_info = target_about_info.controls[1].controls[1]
             target_uploader = target_upload_info.controls[0]
-            target_content_type = target_column.controls[1].content.controls[0].content.value
-            # print(target_title, target_uploader, target_content_type) # デバッグ用
+            target_content_type = target_about_info.controls[1].controls[0].value
             json_path = os.path.join(self.temp_dir, f"{key}.json")
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if not "title" in data or not "uploader" in data or not "url" in data:
                 raise AttributeError("JSONファイルにtitleまたはuploaderまたはurlのキーがありません。")
             data["title"] = target_title.value
+            # print(data["title"]) # デバッグ用
             data["uploader"] = target_uploader.value
+            # print(data["uploader"]) # デバッグ用
             data["content_type"] = target_content_type
+            # print(data["content_type"]) # デバッグ用
             print(f"{key}.jsonを更新しました")
+        except Exception as ex:
+            raise ex
+    
+    def remove_card(self, e, key, page, url):
+        try:
+            if key in self.cards:
+                page.controls.remove(self.cards[key])
+                page.update()
+                del self.cards[key]
+                print(f"self.cardsからkey: {key} を削除しました。")
+                self.added_urls.remove(url)
+                print(f"self.added_urlsからurl: {url} を削除しました。")
+            else:
+                raise AttributeError("keyの値が不正です。")
         except Exception as ex:
             raise ex
     
