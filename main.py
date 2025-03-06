@@ -517,55 +517,71 @@ class YDownloader:
         while attempt < self.retries:
             try:
                 with YoutubeDL(ydl_opts) as ydl:
-                    # ユニークなIDを生成
-                    unique_id = str(uuid.uuid4().hex)
-                    print(f"{url}に対してpreview_video_infoを実行します。")
                     # 動画情報を取得
                     info = ydl.extract_info(url, download=False)
-                    # タイトルを取得して安全なファイル名に変換
-                    title = info.get("title", "Unknown Title")
-                    safe_title = re.sub(r'[\\/*?:"<>|]', "_", title)
-                    # 動画の投稿者名を取得
-                    uploader = info.get("uploader", "Unknown Uploader")
-                    # 動画の概要欄情報の取得
-                    overview = info.get("description", None)
-                    # サムネイル画像の保存
-                    thumbnail_path = None
-                    try:
-                        thumbnail_url = info.get("thumbnail")
-                        if thumbnail_url:
-                            thumb_filename = f"{unique_id}_thumb.jpg"
-                            thumbnail_path = os.path.join(self.temp_dir, thumb_filename)
-                            response = requests.get(thumbnail_url)
-                            with open(thumbnail_path, "wb") as f:
-                                f.write(response.content)
-                    except Exception as ex:
-                        print(f"Error: {ex}")
-                    # 投稿日時のフォーマット
-                    upload_date = info.get("upload_date", "Unknown Date")
-                    if upload_date and upload_date != "Unknown Date":
-                        upload_date = datetime.strptime(upload_date, "%Y%m%d").strftime("%Y年%m月%d日")
-                    # 保存する情報を整理
-                    preview_info = {
-                        "id": unique_id,
-                        "title": safe_title,
-                        "upload_date": upload_date,
-                        "uploader": uploader,
-                        "overview": overview,
-                        "thumbnail_path": thumbnail_path,
-                        "url": url,
-                        "content_type": settings.content_type,
-                    }
-                    # JSON形式で保存
-                    info_filename = f"{unique_id}.json"
-                    info_path = os.path.join(self.temp_dir, info_filename)
-                    with open(info_path, "w", encoding="utf-8") as f:
-                        json.dump(preview_info, f, ensure_ascii=False, indent=2)
-                    return info_path
+                # ユニークなIDを生成
+                unique_id = str(uuid.uuid4().hex)
+                print(f"{url}に対してpreview_video_infoを実行します。")
+                # タイトルを取得して安全なファイル名に変換
+                title = info.get("title", "Unknown Title")
+                safe_title = re.sub(r'[\\/*?:"<>|]', "_", title)
+                # 動画の投稿者名を取得
+                uploader = info.get("uploader", "Unknown Uploader")
+                # 動画の概要欄情報の取得
+                overview = info.get("description", None)
+                # サムネイル画像の保存
+                thumbnail_path = None
+                try:
+                    thumbnail_url = info.get("thumbnail")
+                    if thumbnail_url:
+                        thumb_filename = f"{unique_id}_thumb.jpg"
+                        thumbnail_path = os.path.join(self.temp_dir, thumb_filename)
+                        response = requests.get(thumbnail_url)
+                        with open(thumbnail_path, "wb") as f:
+                            f.write(response.content)
+                except Exception as ex:
+                    print(f"Error: {ex}")
+                # 投稿日時のフォーマット
+                upload_date = info.get("upload_date", "Unknown Date")
+                if upload_date and upload_date != "Unknown Date":
+                    upload_date = datetime.strptime(upload_date, "%Y%m%d").strftime("%Y年%m月%d日")
+                # 保存する情報を整理
+                preview_info = {
+                    "id": unique_id,
+                    "title": safe_title,
+                    "upload_date": upload_date,
+                    "uploader": uploader,
+                    "overview": overview,
+                    "thumbnail_path": thumbnail_path,
+                    "url": url,
+                    "is_playlist": False,
+                    "content_type": settings.content_type,
+                }
+                # JSON形式で保存
+                info_filename = f"{unique_id}.json"
+                info_path = os.path.join(self.temp_dir, info_filename)
+                with open(info_path, "w", encoding="utf-8") as f:
+                    json.dump(preview_info, f, ensure_ascii=False, indent=2)
+                return info_path
             except Exception as ex:
                 if not self.downloader._check_network():
                     print("A network error occurred. Please check your connection and try again.")
                     raise
+                # エラーメッセージにプレイリスト特有の警告が含まれている場合は、プレイリストとして最低限の情報を記録する
+                if "Incomplete data received" in str(ex) or "youtube:tab" in str(ex):
+                    print("プレイリストとみなせるエラーが発生したため、最低限のプレイリスト情報を記録します。")
+                    unique_id = str(uuid.uuid4().hex)
+                    playlist_info = {
+                        "id": unique_id,
+                        "url": url,
+                        "is_playlist": True,
+                        "content_type": settings.content_type,
+                    }
+                    info_filename = f"{unique_id}.json"
+                    info_path = os.path.join(self.temp_dir, info_filename)
+                    with open(info_path, "w", encoding="utf-8") as f:
+                        json.dump(playlist_info, f, ensure_ascii=False, indent=2)
+                    return info_path
                 attempt += 1
                 print(f"Attempt {attempt} failed: {ex}")
                 if attempt >= self.retries:
@@ -642,158 +658,164 @@ class YDownloader:
                     data = json.load(f)
                 # デバッグ用
                 # print(f"data: {data}")
+                is_playlist = data.get("is_playlist", "ERROR")
+                if is_playlist == "ERROR":
+                    raise AttributeError("is_playlistの値が不正です。")
                 # 各Cardに追加されるkey
                 key = data.get("id", "Unknown ID")
                 if key == "Unknown ID":
                     raise ValueError("IDが不明です。")
-                video_title = ft.TextField(
-                    label="タイトル",
-                    value=data.get("title", "Unknown Title"),
-                    adaptive=True
-                )
-                video_overview = ft.TextField(
-                    label="概要",
-                    value=data.get("overview") if data.get("overview") else "概要欄情報が見つかりませんでした。",
-                    multiline=True,
-                    max_lines=2, # カードの高さが画像に合わせて自動調整されるようにして、さらにmax_linesをアダプティブに変更されるようにしたい
-                    expand=True,
-                )
-                video_date = ft.Text(
-                    value=data.get("upload_date"),
-                )
-                video_uploader = ft.TextField(
-                    label="投稿者",
-                    value=data.get("uploader"),
-                    adaptive=True,
-                )
-                video_upload_info = ft.Column(
-                    controls=[
-                        video_uploader, # この部分はcenter表示のまま
-                        ft.Container(
-                            content=ft.Row(
-                                controls=[video_date],
-                            ),
-                        ),
-                    ],
-                )
-                thumbnail_img_src = data.get("thumbnail_path")
-                if not thumbnail_img_src:
-                    # サムネイルがない場合は、compute_perfect_sizeでプレースホルダー画像を生成
-                    placeholder = self.compute_perfect_size(page, 0, 0, key)
-                    video_thumbnail_img = ft.Image(
-                        src=placeholder["src"],
-                        width=placeholder["width"],
-                        height=placeholder["height"],
-                        fit=ft.ImageFit.CONTAIN,
-                        border_radius=ft.border_radius.all(10),
+                if not is_playlist:
+                    video_title = ft.TextField(
+                        label="タイトル",
+                        value=data.get("title", "Unknown Title"),
+                        adaptive=True
                     )
-                else:
-                    # 画像を読み込み、16:9の枠内に収まるように中央配置した背景画像を作成
-                    with Image.open(thumbnail_img_src) as img:
-                        img_width, img_height = img.size
-                        perfect_img_size = self.compute_perfect_size(page, img_width, img_height, key)
-                        # 灰色の背景画像作成
-                        # リサイズはなし
-                        background = Image.new("RGB", (perfect_img_size["width"], perfect_img_size["height"]), (128, 128, 128))
-                        background.paste(img, (perfect_img_size["offset_x"], perfect_img_size["offset_y"]))
-                        # サムネイル画像配置枠
-                        frame_width = perfect_img_size["frame_width"]
-                        frame_height = perfect_img_size["frame_height"]
-                        # .temp内の一時ファイルに保存
-                        with tempfile.NamedTemporaryFile(delete=False, dir=self.temp_dir, suffix=".jpg") as temp_file:
-                            temp_path = temp_file.name
-                            background.save(temp_path, format="JPEG", quality=95) # JPG形式で保存
-                    # 元のファイルをバックアップ
-                    backup_path = thumbnail_img_src + ".bak"
-                    os.rename(thumbnail_img_src, backup_path)
-                    # 一時ファイルを元のファイルに置き換え
-                    os.rename(temp_path, thumbnail_img_src)
-                    # バックアップ削除(上書きが成功した場合)
-                    os.remove(backup_path)
-                    video_thumbnail_img = ft.Image(
-                        src=thumbnail_img_src,
-                        width=frame_width,
-                        height=frame_height,
-                        fit=ft.ImageFit.CONTAIN,
-                        border_radius=ft.border_radius.all(10),
+                    video_overview = ft.TextField(
+                        label="概要",
+                        value=data.get("overview") if data.get("overview") else "概要欄情報が見つかりませんでした。",
+                        multiline=True,
+                        max_lines=2, # カードの高さが画像に合わせて自動調整されるようにして、さらにmax_linesをアダプティブに変更されるようにしたい
+                        expand=True,
                     )
-                delete_icon = ft.IconButton(
-                    icon=ft.icons.DELETE_FOREVER_ROUNDED
-                )
-                download_icon = ft.IconButton(
-                    icon=ft.icons.DOWNLOAD,
-                    on_click=lambda e: self.download_video_by_key(e, key)
-                )
-                about_info = ft.Column(
-                    controls=[
-                        video_title,
-                        ft.Row(
-                            controls=[
-                                video_overview,
-                                video_upload_info
-                            ]
-                        )
-                    ],
-                    expand=True,
-                )
-                info = ft.Row(
-                    controls=[
-                        video_thumbnail_img,
-                        about_info,
-                        ft.Column(
-                            controls=[
-                                download_icon,
-                                delete_icon
-                            ],
-                            alignment=ft.alignment.center,
-                        ),
-                    ],
-                    alignment=ft.alignment.center,
-                )
-                progress = ft.ProgressBar(
-                    visible=False,
-                    value=None,
-                )
-                # RadioGroupを作成(保存形式をMovieとMusicで選択(デフォルトを変えるのではなく、あくまでその動画単体の保存方法変更))
-                rg = ft.RadioGroup(
-                    value=settings.content_type,
-                    content=ft.Row([
-                        ft.Radio(value="movie", label="Movie"),
-                        ft.Radio(value="music", label="Music"),
-                    ]),
-                )
-                progress_container = ft.Container(
-                    content = ft.Column(
+                    video_date = ft.Text(
+                        value=data.get("upload_date"),
+                    )
+                    video_uploader = ft.TextField(
+                        label="投稿者",
+                        value=data.get("uploader"),
+                        adaptive=True,
+                    )
+                    video_upload_info = ft.Column(
                         controls=[
+                            video_uploader, # この部分はcenter表示のまま
                             ft.Container(
-                                content=rg,
-                                alignment=ft.alignment.center_right
+                                content=ft.Row(
+                                    controls=[video_date],
+                                ),
                             ),
-                            progress,
-                        ]
-                    ),
-                    expand=True, # 親の幅いっぱいに広がる
-                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                    border_radius=ft.border_radius.all(8)
-                )
-                video_card = ft.Card(
-                    key=key,
-                    content=ft.Container(
-                        content=ft.Column(
+                        ],
+                    )
+                    thumbnail_img_src = data.get("thumbnail_path")
+                    if not thumbnail_img_src:
+                        # サムネイルがない場合は、compute_perfect_sizeでプレースホルダー画像を生成
+                        placeholder = self.compute_perfect_size(page, 0, 0, key)
+                        video_thumbnail_img = ft.Image(
+                            src=placeholder["src"],
+                            width=placeholder["width"],
+                            height=placeholder["height"],
+                            fit=ft.ImageFit.CONTAIN,
+                            border_radius=ft.border_radius.all(10),
+                        )
+                    else:
+                        # 画像を読み込み、16:9の枠内に収まるように中央配置した背景画像を作成
+                        with Image.open(thumbnail_img_src) as img:
+                            img_width, img_height = img.size
+                            perfect_img_size = self.compute_perfect_size(page, img_width, img_height, key)
+                            # 灰色の背景画像作成
+                            # リサイズはなし
+                            background = Image.new("RGB", (perfect_img_size["width"], perfect_img_size["height"]), (128, 128, 128))
+                            background.paste(img, (perfect_img_size["offset_x"], perfect_img_size["offset_y"]))
+                            # サムネイル画像配置枠
+                            frame_width = perfect_img_size["frame_width"]
+                            frame_height = perfect_img_size["frame_height"]
+                            # .temp内の一時ファイルに保存
+                            with tempfile.NamedTemporaryFile(delete=False, dir=self.temp_dir, suffix=".jpg") as temp_file:
+                                temp_path = temp_file.name
+                                background.save(temp_path, format="JPEG", quality=95) # JPG形式で保存
+                        # 元のファイルをバックアップ
+                        backup_path = thumbnail_img_src + ".bak"
+                        os.rename(thumbnail_img_src, backup_path)
+                        # 一時ファイルを元のファイルに置き換え
+                        os.rename(temp_path, thumbnail_img_src)
+                        # バックアップ削除(上書きが成功した場合)
+                        os.remove(backup_path)
+                        video_thumbnail_img = ft.Image(
+                            src=thumbnail_img_src,
+                            width=frame_width,
+                            height=frame_height,
+                            fit=ft.ImageFit.CONTAIN,
+                            border_radius=ft.border_radius.all(10),
+                        )
+                    delete_icon = ft.IconButton(
+                        icon=ft.icons.DELETE_FOREVER_ROUNDED
+                    )
+                    download_icon = ft.IconButton(
+                        icon=ft.icons.DOWNLOAD,
+                        on_click=lambda e: self.download_video_by_key(e, key)
+                    )
+                    about_info = ft.Column(
+                        controls=[
+                            video_title,
+                            ft.Row(
+                                controls=[
+                                    video_overview,
+                                    video_upload_info
+                                ]
+                            )
+                        ],
+                        expand=True,
+                    )
+                    info = ft.Row(
+                        controls=[
+                            video_thumbnail_img,
+                            about_info,
+                            ft.Column(
+                                controls=[
+                                    download_icon,
+                                    delete_icon
+                                ],
+                                alignment=ft.alignment.center,
+                            ),
+                        ],
+                        alignment=ft.alignment.center,
+                    )
+                    progress = ft.ProgressBar(
+                        visible=False,
+                        value=None,
+                    )
+                    # RadioGroupを作成(保存形式をMovieとMusicで選択(デフォルトを変えるのではなく、あくまでその動画単体の保存方法変更))
+                    rg = ft.RadioGroup(
+                        value=settings.content_type,
+                        content=ft.Row([
+                            ft.Radio(value="movie", label="Movie"),
+                            ft.Radio(value="music", label="Music"),
+                        ]),
+                    )
+                    progress_container = ft.Container(
+                        content = ft.Column(
                             controls=[
-                                info,
-                                progress_container
-                            ],
-                            spacing=10,
+                                ft.Container(
+                                    content=rg,
+                                    alignment=ft.alignment.center_right
+                                ),
+                                progress,
+                            ]
                         ),
-                        padding=4,
-                    ),
-                    margin=0,
-                )
-                self.cards[key] = video_card
-                self.added_urls.append(url)
-                page.add(video_card)
-                page.update()
+                        expand=True, # 親の幅いっぱいに広がる
+                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                        border_radius=ft.border_radius.all(8)
+                    )
+                    video_card = ft.Card(
+                        key=key,
+                        content=ft.Container(
+                            content=ft.Column(
+                                controls=[
+                                    info,
+                                    progress_container
+                                ],
+                                spacing=10,
+                            ),
+                            padding=4,
+                        ),
+                        margin=0,
+                    )
+                    self.cards[key] = video_card
+                    self.added_urls.append(url)
+                    page.add(video_card)
+                    page.update()
+                else:
+                    print("ここにプレイリスト情報をカードにして追加する")
             except Exception as ex:
                 print(f"Error adding video card: {ex}")
             time.sleep(0.5) # 連続処理の負荷を軽減
