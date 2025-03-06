@@ -356,7 +356,8 @@ class Download:
         # uploader = data.get("uploader", "Unknown") # 後で作曲者とかの部分に使用したい
         content_type = data.get("content_type", None)
         if content_type == "movie":
-            self.download_movie(url=url, filename=title)
+            print(title) # デバッグ用
+            # self.download_movie(url=url, filename=title)
         elif content_type == "music":
             self.download_music(url=url, filename=title)
         else:
@@ -434,12 +435,15 @@ class Download:
         
         quality_format = settings.movie_quality
         movie_format = settings.movie_format
+        print(quality_format, movie_format) # デバッグ用
         
         # filenameが指定されていれば、その名前に拡張子を付与して保存する
         if filename:
             outtmpl = os.path.join(self.save_dir, f"{filename}.%(ext)s")
         else:
             outtmpl = os.path.join(self.save_dir, "%(title)s.%(ext)s")
+        
+        print(outtmpl) # デバッグ用
         
         ydl_opts = {
             "format": quality_format,
@@ -449,7 +453,7 @@ class Download:
                 "key": "FFmpegVideoRemuxer",
                 "preferedformat": movie_format,
             }],
-            "progress_hooks": [self._progress_hook] if self.show_progress else [],
+            # "progress_hooks": [self._progress_hook] if self.show_progress else [],
         }
         
         attempt = 0
@@ -998,9 +1002,10 @@ class YDownloader:
             target_uploader = target_upload_info.controls[0]
             target_content_type = target_about_info.controls[1].controls[0].value
             json_path = os.path.join(self.temp_dir, f"{key}.json")
+            # JSONファイルを読み込んで、更新
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            if not "title" in data or not "uploader" in data or not "url" in data:
+            if not all(k in data for k in ("title", "uploader", "url")):
                 raise AttributeError("JSONファイルにtitleまたはuploaderまたはurlのキーがありません。")
             data["title"] = self.downloader._sanitize_filename(target_title.value)
             # print(data["title"]) # デバッグ用
@@ -1008,7 +1013,11 @@ class YDownloader:
             # print(data["uploader"]) # デバッグ用
             data["content_type"] = target_content_type
             # print(data["content_type"]) # デバッグ用
+            # 更新したデータをJSONファイルに書き戻す
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
             print(f"{key}.jsonを更新しました")
+            # ダウンロード処理開始
             self.downloader._check_content_type(key=key)
         except Exception as ex:
             raise ex
