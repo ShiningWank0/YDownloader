@@ -97,6 +97,9 @@ def get_external_path(app_name="YDownloader"):
     OSと実行環境に応じたexternalフォルダーのパスを返します。
     - 開発環境: 実行ファイルと同じディレクトリの下のexternalフォルダー
     - 実行ファイル化後（frozenの場合）：OSごとのユーザーデータディレクトリ内の app_name/external
+    - Windows: C:\Users\<ユーザー名>\AppData\Local\YDownloader
+    - macOS: /Users/<ユーザー名>/Library/Application Support/YDownloader
+    - Linux: /home/<ユーザー名>/.local/share/YDownloader
     """
     # PyInstaller, cx_Freeze, Nuitkaによる実行ファイル化後に供えた処理
     if getattr(sys, "frozen", False) or "__compiled__" in globals():
@@ -104,21 +107,8 @@ def get_external_path(app_name="YDownloader"):
         if os.path.isdir(candidate): # standaloneモードを考慮
             return candidate
         # 実行ファイル化後のユーザー環境
-        if sys.platform.startswith('win'):
-            # Windows: %APPDATA%を使用
-            appdata = os.getenv('APPDATA')
-            if appdata:
-                external_dir = os.path.join(appdata, app_name, "external")
-            else:
-                # 万が一取得できない場合は実行ファイルのあるディレクトリを使用
-                external_dir = os.path.join(get_script_dir(), "external")
-        elif sys.platform == 'darwin':
-            # macOS: ~/Library/Application Support を使用
-            external_dir = os.path.join(os.path.expanduser('~/Library/Application Support'), app_name, "external")
-        else:
-            # Linux 等: XDG_DATA_HOMEがあればそれを、なければ ~/.local/share を使用
-            xdg_data = os.getenv('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
-            external_dir = os.path.join(xdg_data, app_name, "external")
+        # OS毎の適切なユーザーディレクトリ
+        external_dir = os.path.join(user_data_dir(app_name), "external")
     else:
         # 開発環境：スクリプトディレクトリ直下の external フォルダーを使用
         external_dir = os.path.join(get_script_dir(), "external")
@@ -126,7 +116,9 @@ def get_external_path(app_name="YDownloader"):
 
 def setup_logging():
     """ログファイルを使用したログの記録のセットアップ関数"""
-    log_file = os.path.join(get_script_dir(), "app.log")
+    log_dir = os.path.join(get_script_dir(), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "app.log")
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
     # ログファイルにエラー情報や一般的なログを記録する
@@ -144,21 +136,11 @@ def setup_logging():
     # loggerにhandlerをセット
     logger.addHandler(rotating_handler)
     
-    # コンソールへの出力(開発中はこちらも有用)
+    # 開発中(ソースコードのまま)では、コンソールにも出力する
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(logging.DEBUG)
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
-
-# # externalに保存したyt-dlpをimportできるようにする
-# # main.pyのあるディレクトリを取得
-# SCRIPT_DIR = get_script_dir()
-# # externalディレクトリのパスを作成
-# EXTERNAL_PATH = os.path.join(SCRIPT_DIR, "external")
-# # externalディレクトリをsys.pathの先頭に追加
-# sys.path.insert(0, EXTERNAL_PATH)
-# # これでexternal/yt_dlp内のモジュールをimport可能になる
-# from yt_dlp import YoutubeDL
 
 """
 def main(page: ft.Page):
@@ -693,7 +675,7 @@ class YDownloader:
         ydl_opts = {
             "skip_download": True, # 動画本体はダウンロードしない
             "quiet": True, # 進捗状況を表示しない
-            "verbose": True,  # 詳細なデバッグ情報を表示
+            # "verbose": True,  # 詳細なデバッグ情報を表示
         }
         attempt = 0
         while attempt < self.retries:
