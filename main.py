@@ -20,6 +20,7 @@ from logging.handlers import RotatingFileHandler
 from appdirs import user_data_dir
 import tkinter as tk
 from tkinter import filedialog
+from concurrent.futures import ThreadPoolExecutor
 # TraceBackを使用することで、エラー原因の詳細が表示されるようにできる(全ての関数に実装していく予定)
 # 実行ファイル化した後を想定して、エラーログなどをファイルに出力するようにする
 # 後やること: loggerを使用した出力の保存に切り替え・エラーで処理が止まらないように・externalフォルダー探索関数を用意・デバッグ用などの余計なprint関数をコメントアウトする
@@ -1441,13 +1442,38 @@ class YDownloader:
         except Exception as ex:
             raise ex
     
-    def all_download():
-        print("全てのカードをそれぞれの形式でダウンロードする") # デバッグ用
+    def all_download(self, e, page):
+        try:
+            # 全ダウンロードボタンと全削除ボタンを使えなくする
+            self.all_download_icon.disabled = True 
+            self.all_delete_icon.disabled = True
+            page.update()
+            with ThreadPoolExecutor() as executor: # 同時並行的に処理
+                futures = [executor.submit(self.download_video_by_key, None, key, page) for key in self.cards.keys()]
+                # print("全てのカードをそれぞれの形式でダウンロードする") # デバッグ用
+                # エラーをキャッチするために結果を取得
+                for future in futures:
+                    future.result()
+        except Exception as ex:
+            raise ex
+        finally:
+            # 全ての処理が完了した後に発火
+            self.all_download_icon.disabled = False
+            self.all_delete_icon.disabled = False
+            page.update()
     
     def all_remove(self, e, page):
-        # print("全てのカードを削除する") # デバッグ用
-        for key, value in self.cards.items():
-            page.controls.remove(value)
+        try:
+            # print("全てのカードを削除する") # デバッグ用
+            for key, value in self.cards.items():
+                page.controls.remove(value)
+                del value
+                page.update()
+                print(f"self.cardsからkey: {key} を削除しました。")
+            self.added_urls = []
+            print("self.added_urlsを初期化しました")
+        except Exception as ex:
+            raise ex
     
     def main(self, page: ft.Page):
         """
@@ -1532,10 +1558,14 @@ class YDownloader:
         )
         all_download_icon = ft.IconButton(
             icon=ft.icons.CLOUD_DOWNLOAD_OUTLINED,
+            on_click=lambda e: self.all_download(e, page)
         )
+        self.all_download_icon = all_download_icon
         all_delete_icon = ft.IconButton(
-            icon=ft.icons.DELETE_FOREVER
+            icon=ft.icons.DELETE_FOREVER,
+            on_click=lambda e: self.all_remove(e, page)
         )
+        self.all_delete_icon = all_delete_icon
         
         # テーマ切り替えボタン
         toggle_button = ft.ElevatedButton("テーマを切り替える", on_click=lambda e: self.toggle_theme(e, page))
