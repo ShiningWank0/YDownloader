@@ -883,8 +883,8 @@ class YDownloader:
                 print(self.pre_url_list) # デバッグ用
                 url = self.pre_url_list.pop(0) # pop(0)で先頭のURLを取得してリストから削除
                 self.progress.visible = True # 取り込み開始なので表示
-                self.progress.controls[1].value = f"{self.pre_current_urls}/{self.pre_total_urls}" # progress_textのvalue
-                self.progress.controls[0].content.value = ((self.pre_current_urls + 1) / self.pre_total_urls) if self.pre_total_urls > 0 else 0 # progress_barのvalue
+                self.progress.controls[1].value = f"{self.pre_current_urls + 1}/{self.pre_total_urls}" # progress_textのvalue
+                self.progress.controls[0].content.value = (self.pre_current_urls / self.pre_total_urls) if self.pre_total_urls > 0 else 0 # progress_barのvalue
                 page.update()
             try:
                 self.pre_current_urls += 1
@@ -1441,6 +1441,14 @@ class YDownloader:
         except Exception as ex:
             raise ex
     
+    def all_download():
+        print("全てのカードをそれぞれの形式でダウンロードする") # デバッグ用
+    
+    def all_remove(self, e, page):
+        # print("全てのカードを削除する") # デバッグ用
+        for key, value in self.cards.items():
+            page.controls.remove(value)
+    
     def main(self, page: ft.Page):
         """
         Fletのページを構築するメインメソッド
@@ -1522,6 +1530,12 @@ class YDownloader:
             icon=ft.icons.DOWNLOAD_ROUNDED,
             on_click=lambda e: self.import_text_files(e, tf, page)
         )
+        all_download_icon = ft.IconButton(
+            icon=ft.icons.CLOUD_DOWNLOAD_OUTLINED,
+        )
+        all_delete_icon = ft.IconButton(
+            icon=ft.icons.DELETE_FOREVER
+        )
         
         # テーマ切り替えボタン
         toggle_button = ft.ElevatedButton("テーマを切り替える", on_click=lambda e: self.toggle_theme(e, page))
@@ -1546,6 +1560,8 @@ class YDownloader:
                     controls=[
                         progress,
                         ib,
+                        all_download_icon,
+                        all_delete_icon,
                     ],
                     spacing=20,
                     alignment=ft.MainAxisAlignment.END,
