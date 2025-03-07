@@ -18,8 +18,12 @@ import tempfile
 import logging
 from logging.handlers import RotatingFileHandler
 from appdirs import user_data_dir
+import tkinter as tk
+from tkinter import filedialog
 # TraceBackを使用することで、エラー原因の詳細が表示されるようにできる(全ての関数に実装していく予定)
 # 実行ファイル化した後を想定して、エラーログなどをファイルに出力するようにする
+# 後やること: loggerを使用した出力の保存に切り替え・エラーで処理が止まらないように・externalフォルダー探索関数を用意・デバッグ用などの余計なprint関数をコメントアウトする
+# 後は読み込み時のプログレスバーと一括ダウンロードと一括カード削除ボタン
 
 """
 Nuitkaを使用したFletデスクトップアプリのパック
@@ -87,6 +91,38 @@ def get_script_dir():
     else:
         return os.path.dirname(os.path.abspath(__file__))
 
+def get_external_path(app_name="YDownloader"):
+    """
+    OSと実行環境に応じたexternalフォルダーのパスを返します。
+    - 開発環境: 実行ファイルと同じディレクトリの下のexternalフォルダー
+    - 実行ファイル化後（frozenの場合）：OSごとのユーザーデータディレクトリ内の app_name/external
+    """
+    # PyInstaller, cx_Freeze, Nuitkaによる実行ファイル化後に供えた処理
+    if getattr(sys, "frozen", False) or "__compiled__" in globals():
+        candidate = os.path.join(os.path.dirname(os.path.abspath(__file__)), "external")
+        if os.path.isdir(candidate): # standaloneモードを考慮
+            return candidate
+        # 実行ファイル化後のユーザー環境
+        if sys.platform.startswith('win'):
+            # Windows: %APPDATA%を使用
+            appdata = os.getenv('APPDATA')
+            if appdata:
+                external_dir = os.path.join(appdata, app_name, "external")
+            else:
+                # 万が一取得できない場合は実行ファイルのあるディレクトリを使用
+                external_dir = os.path.join(get_script_dir(), "external")
+        elif sys.platform == 'darwin':
+            # macOS: ~/Library/Application Support を使用
+            external_dir = os.path.join(os.path.expanduser('~/Library/Application Support'), app_name, "external")
+        else:
+            # Linux 等: XDG_DATA_HOMEがあればそれを、なければ ~/.local/share を使用
+            xdg_data = os.getenv('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
+            external_dir = os.path.join(xdg_data, app_name, "external")
+    else:
+        # 開発環境：スクリプトディレクトリ直下の external フォルダーを使用
+        external_dir = os.path.join(get_script_dir(), "external")
+    return external_dir
+
 def setup_logging():
     """ログファイルを使用したログの記録のセットアップ関数"""
     log_file = os.path.join(get_script_dir(), "app.log")
@@ -113,15 +149,15 @@ def setup_logging():
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-# externalに保存したyt-dlpをimportできるようにする
-# main.pyのあるディレクトリを取得
-SCRIPT_DIR = get_script_dir()
-# externalディレクトリのパスを作成
-EXTERNAL_PATH = os.path.join(SCRIPT_DIR, "external")
-# externalディレクトリをsys.pathの先頭に追加
-sys.path.insert(0, EXTERNAL_PATH)
-# これでexternal/yt_dlp内のモジュールをimport可能になる
-from yt_dlp import YoutubeDL
+# # externalに保存したyt-dlpをimportできるようにする
+# # main.pyのあるディレクトリを取得
+# SCRIPT_DIR = get_script_dir()
+# # externalディレクトリのパスを作成
+# EXTERNAL_PATH = os.path.join(SCRIPT_DIR, "external")
+# # externalディレクトリをsys.pathの先頭に追加
+# sys.path.insert(0, EXTERNAL_PATH)
+# # これでexternal/yt_dlp内のモジュールをimport可能になる
+# from yt_dlp import YoutubeDL
 
 """
 def main(page: ft.Page):
@@ -276,12 +312,14 @@ class DefaultSettingsLoader:
 
 class Download:
     def __init__(self, settings):
-        self.save_dir = settings.download_dir
+        self.save_dir = os.path.join(settings.download_dir, "YDownloader")
+        os.makedirs(self.save_dir, exist_ok=True)
         self.retries = settings.retry_chance
         self.show_progress = settings.show_progress
         self.content_type = settings.content_type
         os.makedirs(self.save_dir, exist_ok=True)
         self.temp_dir = settings.temp_dir
+        self.cards = {}
     
     def _sanitize_filename(self, filename: str, replacement: str = "_") -> str:
         """
@@ -291,12 +329,11 @@ class Download:
         :param replacement: 置き換え文字(デフォルトは"_")
         :return: 安全なファイル名
         """
-        # 共通の禁止文字(Windows, Linux, macOS)
-        forbidden_chars = r'[\x00-\x1f]'  # 制御文字（ASCII 0-31）
+        # 禁止文字設定
         if os.name == 'nt': # Windowsの場合
-            forbidden_chars += r'[\\/*?:"<>|]'
+            forbidden_chars = r'[\x00-\x1f\\/*?:"<>|]'
         else: # Linux/macOSの場合
-            forbidden_chars += r'[/]'  # スラッシュはディレクトリ区切りのため禁止
+            forbidden_chars = r'[\x00-\x1f/]'  # スラッシュはディレクトリ区切りのため禁止
         # 禁止文字を指定の文字(デフォルト"_")に置換
         filename = re.sub(forbidden_chars, replacement, filename)
         # Windowsでは先頭・末尾の空白やピリオドを削除
@@ -313,17 +350,18 @@ class Download:
         # 空のファイル名を回避
         return filename if filename else "default_filename"
     
-    def _progress_hook(self, status):
-        """
-        yt-dlpの進捗状況を表示するためのフック関数
-        """
-        if self.show_progress:
-            if status.get('status') == 'downloading':
-                downloaded = status.get('downloaded_bytes', 0)
-                total = status.get('total_bytes') or status.get('total_bytes_estimate') or 0
-                print(f"Downloading... {downloaded} / {total} bytes", end='\r')
-            elif status.get('status') == 'finished':
-                print("\nDownload finished.")
+    # 基本的にいらない(後の確認用に一応コメントアウトにとどめる)
+    # def _progress_hook(self, status):
+    #     """
+    #     yt-dlpの進捗状況を表示するためのフック関数
+    #     """
+    #     if self.show_progress:
+    #         if status.get('status') == 'downloading':
+    #             downloaded = status.get('downloaded_bytes', 0)
+    #             total = status.get('total_bytes') or status.get('total_bytes_estimate') or 0
+    #             print(f"Downloading... {downloaded} / {total} bytes", end='\r')
+    #         elif status.get('status') == 'finished':
+    #             print("\nDownload finished.")
     
     def _check_network(self, host="8.8.8.8", port=53, timeout=3):
         """
@@ -338,14 +376,15 @@ class Download:
         except socket.error:
             return False
     
-    def _check_content_type(self, key=None):
+    def _check_content_type(self, key=None, page=None):
         """
         ダウンロードしたいコンテンツタイプに応じて、ダウンロード関数を適宜実施する関数
         
-        :param url: ダウンロードするコンテンツのURL。指定がない時、AttirbuteErrorを起こす
+        :param key: Card要素検索のためのkey
+        :param page: Fletのpage
         """
-        if not key:
-            raise AttributeError("keyを適切に指定してください")
+        if not key or not page:
+            raise AttributeError("keyまたはpageの値が不正です。")
         info_path = os.path.join(self.temp_dir, f"{key}.json")
         with open(info_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -355,68 +394,135 @@ class Download:
         title = data.get("title", "Unknown Title")
         # uploader = data.get("uploader", "Unknown") # 後で作曲者とかの部分に使用したい
         content_type = data.get("content_type", None)
-        if content_type == "movie":
-            print(title) # デバッグ用
-            # self.download_movie(url=url, filename=title)
-        elif content_type == "music":
-            self.download_music(url=url, filename=title)
+        is_entries = data.get("is_entries", False)
+        if not is_entries:
+            if content_type == "movie":
+                self.download_movie(url=url, filename=title, key=key, page=page)
+            elif content_type == "music":
+                self.download_music(url=url, filename=title, key=key, page=page)
+            else:
+                raise AttributeError("content_typeの値が不正です。")
         else:
-            raise AttributeError("content_typeの値が不正です。")
-    
-    def download_overview(self, url=False, max_comments=50, process_callback=None):
-        """
-        動画の概要情報（説明文、上位コメント等）をJSON形式で取得し、一時ファイルとして保存する。
-        取得後、process_callbackによりLLMでの情報抽出処理を行い、その完了後にファイルを削除する。
-        
-        :param url: ダウンロードしたいコンテンツのURL(Falseの場合はエラー)
-        :param max_comments: 保存する上位コメントの最大件数(デフォルト: 50)
-        :param process_callback: JSONデータを引数に取り、情報抽出処理を行うコールバック関数
-        """
-        if not url:
-            raise Exception("Error: url is not defined")
-        
-        ydl_opts = {
-            "skip_download": True, # 動画本体はダウンロードしない
-            "getcomments": True, # コメント情報を取得(サイトやyt-dlpのバージョンに依存)
-            "outtmpl": os.path.join(self.save_dir, "%(title)s.%(id)s.json"),
-            "progress_hooks": [self._progress_hook] if self.show_progress else [],
-        }
-        
-        attempt = 0
-        while attempt < self.retries:
+            # print("これは正常にメタデータが記録されたプレイリスト") # デバッグ用
             try:
-                with YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                # コメントが取得できた場合は、上位 max_comments 件に絞る
-                if "comments" in info and isinstance(info["comments"], list):
-                    info["comments"] = info["comments"][:max_comments]
-                
-                # シンプルなファイル名を生成(例: tmp_動画タイトル_動画ID.json)
-                save_title = self._sanitize_filename(info.get("title", "video"))
-                video_id = info.get("id", "unknown")
-                filename = f"tmp_{save_title}_{video_id}.json"
-                output_filename = os.path.join(self.save_dir, filename)
-                
-                # JSONとして保存
-                with open(output_filename, "w", encoding="utf-8") as f:
-                    json.dump(info, f, ensure_ascii=False, indent=2)
-                print(f"Metadata saved to: {output_filename}")
-                
-                # コールバック関数が指定されていれば呼び出し、その後ファイルを削除
-                if process_callback:
-                    process_callback(info)
-                    os.remove(output_filename)
-                    print(f"Metadata file {output_filename} deleted after processing.")
-                
-                return info
+                entries = data.get("entries", None)
+                save_dir = os.path.join(self.save_dir, title)
+                os.makedirs(save_dir, exist_ok=True)
+                if not entries:
+                    raise AttributeError("entriesの値が不正です。")
+                if content_type == "movie":
+                    for index, entry in enumerate(entries):
+                        print(f"{index + 1}番目のコンテンツをダウンロードします") # デバッグ用
+                        entry_title = entry.get("title", None)
+                        entry_url = entry.get("url", None)
+                        if not entry_title or not entry_url:
+                            print(f"{index + 1}番目のentryのtitleまたはurlの値が不正です。")
+                            continue # スキップ
+                        self.download_movie(url=entry_url, filename=entry_title, content_save_dir=save_dir, page=page, is_entries=True)
+                    print("Download process complete. Executing post-download code.")
+                    self._fire_after_download(key=key, page=page)
+                    print(f"Movie download completed in format: {settings.movie_format}")
+                elif content_type == "music":
+                    for index, entry in enumerate(entries):
+                        print(f"{index + 1}番目のコンテンツをダウンロードします") # デバッグ用
+                        entry_title = entry.get("title", None)
+                        entry_url = entry.get("url", None)
+                        if not entry_title or not entry_url:
+                            print(f"{index + 1}番目のentryのtitleの値が不正です。")
+                            continue # スキップ
+                        self.download_music(url=entry_url, filename=entry_title, content_save_dir=save_dir, page=page, is_entries=True)
+                    print("Download process complete. Executing post-download code.")
+                    self._fire_after_download(key=key, page=page)
+                    print(f"Music download completed in format: {settings.music_format}")
+                else:
+                    raise AttributeError("content_typeの値が不正です。")
             except Exception as ex:
-                attempt += 1
-                print(f"Attempt {attempt} failed: {ex}")
-                if attempt >= self.retries:
-                    print("Max retry limit reached. Aborting metadata download.")
-                    raise
+                raise ex
     
-    def download_movie(self, url=False, filename=None):
+    def _fire_after_download(self, key=None, page=None):
+        """
+        ダウンロード完了後の処理
+        完了したkeyのCardのdisabledにしたボタンやテキストフィールドのdisabledを解除する
+        """
+        print("Post-download processing is now executed.")
+        try:
+            if not key or not page:
+                raise AttributeError("keyまたはpageの値が不正です。")
+            target_card = self.cards[key]
+            target_column = target_card.content.content
+            target_info = target_column.controls[0]
+            target_progress_bar = target_column.controls[1].content
+            target_about_info = target_info.controls[1]
+            target_title = target_about_info.controls[0]
+            target_uploader = target_about_info.controls[1].controls[0]
+            target_content_type = target_about_info.controls[1].controls[1].controls[0]
+            download_button = target_info.controls[2].controls[0]
+            delete_button = target_info.controls[2].controls[1]
+            download_button.disabled = False  # ダウンロードボタンを有効化
+            delete_button.disabled = False # デリートボタンを有効化
+            target_title.disabled = False # タイトル入力欄を有効化
+            target_content_type.disabled = False # ダウンロードタイプ選択有効化
+            target_uploader.disabled = False # 投稿者テキストフィールド有効化
+            target_progress_bar.visible = False # プログレスバーが見えなくする
+            page.update()
+        except Exception as ex:
+            raise ex
+    
+    # そのうちコメント取得用にのみ使うかも。今の所は不要
+    # def download_overview(self, url=False, max_comments=50, process_callback=None):
+    #     """
+    #     動画の概要情報（説明文、上位コメント等）をJSON形式で取得し、一時ファイルとして保存する。
+    #     取得後、process_callbackによりLLMでの情報抽出処理を行い、その完了後にファイルを削除する。
+        
+    #     :param url: ダウンロードしたいコンテンツのURL(Falseの場合はエラー)
+    #     :param max_comments: 保存する上位コメントの最大件数(デフォルト: 50)
+    #     :param process_callback: JSONデータを引数に取り、情報抽出処理を行うコールバック関数
+    #     """
+    #     if not url:
+    #         raise Exception("Error: url is not defined")
+        
+    #     ydl_opts = {
+    #         "skip_download": True, # 動画本体はダウンロードしない
+    #         "getcomments": True, # コメント情報を取得(サイトやyt-dlpのバージョンに依存)
+    #         "outtmpl": os.path.join(self.save_dir, "%(title)s.%(id)s.json"),
+    #         "progress_hooks": [self._progress_hook] if self.show_progress else [],
+    #     }
+        
+    #     attempt = 0
+    #     while attempt < self.retries:
+    #         try:
+    #             with YoutubeDL(ydl_opts) as ydl:
+    #                 info = ydl.extract_info(url, download=False)
+    #             # コメントが取得できた場合は、上位 max_comments 件に絞る
+    #             if "comments" in info and isinstance(info["comments"], list):
+    #                 info["comments"] = info["comments"][:max_comments]
+                
+    #             # シンプルなファイル名を生成(例: tmp_動画タイトル_動画ID.json)
+    #             save_title = self._sanitize_filename(info.get("title", "video"))
+    #             video_id = info.get("id", "unknown")
+    #             filename = f"tmp_{save_title}_{video_id}.json"
+    #             output_filename = os.path.join(self.save_dir, filename)
+                
+    #             # JSONとして保存
+    #             with open(output_filename, "w", encoding="utf-8") as f:
+    #                 json.dump(info, f, ensure_ascii=False, indent=2)
+    #             print(f"Metadata saved to: {output_filename}")
+                
+    #             # コールバック関数が指定されていれば呼び出し、その後ファイルを削除
+    #             if process_callback:
+    #                 process_callback(info)
+    #                 os.remove(output_filename)
+    #                 print(f"Metadata file {output_filename} deleted after processing.")
+                
+    #             return info
+    #         except Exception as ex:
+    #             attempt += 1
+    #             print(f"Attempt {attempt} failed: {ex}")
+    #             if attempt >= self.retries:
+    #                 print("Max retry limit reached. Aborting metadata download.")
+    #                 raise
+    
+    def download_movie(self, url=False, filename=None, content_save_dir=False, key=None, page=None, is_entries=False):
         """
         指定されたURLの動画をダウンロードする。
         settings.content_typeが "movie" の場合、実行される。
@@ -425,9 +531,17 @@ class Download:
         
         :param url: ダウンロード対象のコンテンツURL(Falseの場合はエラー)
         :param filename: 保存する際のファイル名(拡張子は自動付与)
+        :param content_save_dir: 保存する際のディレクトリ(プレイリストだとプレイリスト名のフォルダーを作ってその中に保存する)(デフォルトはself.save_dir)
+        :param key: Card要素検索のためのkey
+        :param page: Fletのpage
+        :param is_entries: プレイリスト向け処理用のオプション(デフォルトはFalse)
         """
-        if not url:
-            raise Exception("Error: url is not defined")
+        if not url or not page:
+            raise AttributeError("Error: url or page is not defined")
+        if not key and not is_entries:
+            raise AttributeError("Error: key is not defined for not entries case")
+        if not content_save_dir:
+            content_save_dir = self.save_dir
         
         # URLをリストに変換(既にリストの場合はそのまま)
         # こうすることで、インスタンス作成数を減らせるし、将来的なバージョンアップにも対応しやすい
@@ -439,21 +553,23 @@ class Download:
         
         # filenameが指定されていれば、その名前に拡張子を付与して保存する
         if filename:
-            outtmpl = os.path.join(self.save_dir, f"{filename}.%(ext)s")
+            outtmpl = os.path.join(content_save_dir, f"{filename}.%(ext)s")
         else:
-            outtmpl = os.path.join(self.save_dir, "%(title)s.%(ext)s")
-        
+            outtmpl = os.path.join(content_save_dir, "%(title)s.%(ext)s")
         print(outtmpl) # デバッグ用
         
         ydl_opts = {
             "format": quality_format,
             "outtmpl": outtmpl,
             "merge_output_format": movie_format,
-            "postprocessors": [{ 
-                "key": "FFmpegVideoRemuxer",
-                "preferedformat": movie_format,
-            }],
-            # "progress_hooks": [self._progress_hook] if self.show_progress else [],
+            "postprocessors": [
+                {
+                    "key": "FFmpegVideoRemuxer",
+                    "preferedformat": movie_format,
+                }
+            ],
+            "postprocessor_args": ["-c:a", "aac"],  # FFmpeg に音声を AAC に変換させる
+            "updatetime": False,  # これを追加
         }
         
         attempt = 0
@@ -461,7 +577,12 @@ class Download:
             try:
                 with YoutubeDL(ydl_opts) as ydl:
                     ydl.download(urls) # リストとして渡す
-                print(f"Movie download completed in format: {movie_format}")
+                # ここで、全てのダウンロード処理(およびマージ)が完了しているので、終了処理を一度だけ呼ぶ
+                # プレイリストでない時は別の個所で終了処理を行う(ダウンロード関数は繰り返されるため)
+                if not is_entries:
+                    print("Download process complete. Executing post-download code.")
+                    self._fire_after_download(key=key, page=page)
+                    print(f"Movie download completed in format: {movie_format}")
                 break
             except Exception as ex:
                 if not self._check_network():
@@ -473,7 +594,7 @@ class Download:
                     print("Max retry limit reached. Aborting movie download.")
                     raise
     
-    def download_music(self, url=False, filename=None):
+    def download_music(self, url=False, filename=None, content_save_dir=False, key=None, page=None, is_entries=False):
         """
         指定されたURLの音楽をダウンロードする。
         settings.content_typeが "music" の場合、実行される。
@@ -481,9 +602,18 @@ class Download:
         ファイル形式は、settings.music_formatをもとに選択される。
         
         :param url: ダウンロード対象のコンテンツURL(Falseの場合はエラー)
+        :param filename: 保存する際のファイル名(拡張子は自動付与)
+        :param content_save_dir: 保存する際のディレクトリ(プレイリストだとプレイリスト名のフォルダーを作ってその中に保存する)(デフォルトはself.save_dir)
+        :param key: Card要素検索のためのkey
+        :param page: Fletのpage
+        :param is_entries: プレイリスト向け処理用のオプション(デフォルトはFalse)
         """
-        if not url:
-            raise Exception("Error: url is not defined")
+        if not url or not page:
+            raise AttributeError("Error: url or page is not defined")
+        if not key and not is_entries:
+            raise AttributeError("Error: key is not defined for not entries case")
+        if not content_save_dir:
+            content_save_dir = self.save_dir
         
         # URLをリストに変換(既にリストの場合はそのまま)
         # こうすることで、インスタンス作成数を減らせるし、将来的なバージョンアップにも対応しやすい
@@ -491,22 +621,24 @@ class Download:
         
         quality_format = settings.music_quality
         music_format = settings.music_format
+        print(quality_format, music_format) # デバッグ用
         
         # filenameが指定されていれば、その名前に拡張子を付与して保存する
         if filename:
-            outtmpl = os.path.join(self.save_dir, f"{filename}.%(ext)s")
+            outtmpl = os.path.join(content_save_dir, f"{filename}.%(ext)s")
         else:
-            outtmpl = os.path.join(self.save_dir, "%(title)s.%(ext)s")
+            outtmpl = os.path.join(content_save_dir, "%(title)s.%(ext)s")
+        print(outtmpl) # デバッグ用
         
         ydl_opts = {
             "format": quality_format,
-            "outtmpl": os.path.join(self.save_dir, "%(title)s.%(ext)s"),
+            "outtmpl": outtmpl,
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": music_format,
                 "preferredquality": "192", # ビットレート(今後設定ファイルから制御可能にする)
             }],
-            "progress_hooks": [self._progress_hook] if self.show_progress else [],
+            "updatetime": False,  # これを追加
         }
         
         attempt = 0
@@ -514,7 +646,12 @@ class Download:
             try:
                 with YoutubeDL(ydl_opts) as ydl:
                     ydl.download(urls)
-                print(f"Music download completed in format: {music_format}")
+                # ここで、全てのダウンロード処理(およびマージ)が完了しているので、終了処理を一度だけ呼ぶ
+                # プレイリストでない時は別の個所で終了処理を行う(ダウンロード関数は繰り返されるため)
+                if not is_entries:
+                    print("Download process complete. Executing post-download code.")
+                    self._fire_after_download(key=key, page=page)
+                    print(f"Music download completed in format: {music_format}")
                 break
             except Exception as ex:
                 if not self._check_network():
@@ -555,6 +692,7 @@ class YDownloader:
         ydl_opts = {
             "skip_download": True, # 動画本体はダウンロードしない
             "quiet": True, # 進捗状況を表示しない
+            "verbose": True,  # 詳細なデバッグ情報を表示
         }
         attempt = 0
         while attempt < self.retries:
@@ -563,6 +701,12 @@ class YDownloader:
                 with YoutubeDL(ydl_opts) as ydl:
                     # 動画情報を取得
                     info = ydl.extract_info(url, download=False)
+                # このままだとプレイリストがまとまる
+                # そして、それをダウンロードしようとすると中身をすべてプレイリストの名前で保存しようとするため、上書き保存されてしまう
+                # プレイリストならばプレイリスト名でフォルダーを作成して、そのなかにプレイリストの中身の動画を底にダウンロードするように変更する
+                # print(json.dump(info, indent=2, ensure_ascii=False)) # デバッグ用
+                if not info:
+                    raise AttributeError(f"Error: Could not retrieve information for {url}") # ここで終了しないと後続処理がエラーになる
                 # ユニークなIDを生成
                 unique_id = str(uuid.uuid4().hex)
                 # タイトルを取得して安全なファイル名に変換
@@ -588,18 +732,59 @@ class YDownloader:
                 upload_date = info.get("upload_date", "Unknown Date")
                 if upload_date and upload_date != "Unknown Date":
                     upload_date = datetime.strptime(upload_date, "%Y%m%d").strftime("%Y年%m月%d日")
-                # 保存する情報を整理
-                preview_info = {
-                    "id": unique_id,
-                    "title": safe_title,
-                    "upload_date": upload_date,
-                    "uploader": uploader,
-                    "overview": overview,
-                    "thumbnail_path": thumbnail_path,
-                    "url": url,
-                    "is_playlist": False,
-                    "content_type": settings.content_type,
-                }
+                # entriesがあればプレイリストと判定できる
+                entries = info.get("entries", None)
+                if entries:
+                    print("これはプレイリストです") # デバッグ用
+                    entries_numbers = len(entries)
+                    extracted_entries = []
+                    for index, entry in enumerate(entries):
+                        entry_safe_title = self.downloader._sanitize_filename(entry.get("title", None))
+                        entry_url = entry.get("webpage_url", None)
+                        entry_uploader = entry.get("uploader", "Unknown Uploader")
+                        entry_upload_date = entry.get("uploader", "Unknown Uploader")
+                        entry_overview = entry.get("description", None)
+                        if not entry_safe_title or not entry_url:
+                            print(f"entry {index} は無効なデータの為、スキップされました")
+                            continue # スキップ
+                        extracted_entries.append(
+                            {
+                                # idはいらない
+                                "index": index,
+                                "title": entry_safe_title,
+                                "url": entry_url,
+                                "uploader": entry_uploader,
+                                "upload_date": entry_upload_date,
+                                "overview": entry_overview
+                            }
+                        )
+                    preview_info = {
+                        "id": unique_id,
+                        "title": safe_title,
+                        "upload_date": upload_date,
+                        "uploader": uploader,
+                        "overview": overview,
+                        "thumbnail_path": thumbnail_path,
+                        "url": url,
+                        "is_playlist": False,
+                        "content_type": settings.content_type,
+                        "is_entries": True,
+                        "numbers": entries_numbers,
+                        "entries": extracted_entries,
+                    }
+                else:
+                    # 保存する情報を整理
+                    preview_info = {
+                        "id": unique_id,
+                        "title": safe_title,
+                        "upload_date": upload_date,
+                        "uploader": uploader,
+                        "overview": overview,
+                        "thumbnail_path": thumbnail_path,
+                        "url": url,
+                        "is_playlist": False,
+                        "content_type": settings.content_type,
+                    }
                 # JSON形式で保存
                 info_filename = f"{unique_id}.json"
                 info_path = os.path.join(self.temp_dir, info_filename)
@@ -690,8 +875,17 @@ class YDownloader:
                 while not self.pre_url_list:
                     self.pre_total_urls = 0
                     self.pre_current_urls = 0
+                    self.progress.visible = False # 進捗バー見えないように
+                    self.progress.controls[1].value = 0 # progress_textのvalue
+                    self.progress.controls[0].content.value = 0 # progress_barのvalue
+                    page.update()
                     self.condition_pre.wait()
+                print(self.pre_url_list) # デバッグ用
                 url = self.pre_url_list.pop(0) # pop(0)で先頭のURLを取得してリストから削除
+                self.progress.visible = True # 取り込み開始なので表示
+                self.progress.controls[1].value = f"{self.pre_current_urls}/{self.pre_total_urls}" # progress_textのvalue
+                self.progress.controls[0].content.value = ((self.pre_current_urls + 1) / self.pre_total_urls) if self.pre_total_urls > 0 else 0 # progress_barのvalue
+                page.update()
             try:
                 self.pre_current_urls += 1
                 json_path = self.preview_video_info(url=url)
@@ -708,98 +902,109 @@ class YDownloader:
                 key = data.get("id", "Unknown ID")
                 if key == "Unknown ID":
                     raise ValueError("IDが不明です。")
-                if not is_playlist:
-                    video_title = ft.TextField(
+                is_entries = data.get("is_entries", False)
+                if is_entries:
+                    print("これは正常にメタデータを入手できたプレイリスト") # デバッグ用
+                    entry_video_title = ft.TextField(
                         label="タイトル",
                         value=data.get("title", "Unknown Title"),
                         adaptive=True,
                     )
-                    video_date = ft.Text(
+                    entry_video_date = ft.Text(
                         value=data.get("upload_date", "Unknown"),
                     )
-                    video_uploader = ft.TextField(
+                    entry_video_uploader = ft.TextField(
                         label="投稿者",
                         value=data.get("uploader", "Unknown"),
                         adaptive=True,
                     )
-                    thumbnail_img_src = data.get("thumbnail_path", None)
-                    if not thumbnail_img_src:
+                    entry_thumbnail_img_src = data.get("thumbnail_path", None)
+                    if not entry_thumbnail_img_src:
                         # サムネイルがない場合は、compute_perfect_sizeでプレースホルダー画像を生成
-                        placeholder = self.compute_perfect_size(page, 0, 0, key)
-                        video_thumbnail_img = ft.Image(
-                            src=placeholder["src"],
-                            width=placeholder["width"],
-                            height=placeholder["height"],
+                        entry_placeholder = self.compute_perfect_size(page, 0, 0, key)
+                        entry_video_thumbnail_img = ft.Image(
+                            src=entry_placeholder["src"],
+                            width=entry_placeholder["width"],
+                            height=entry_placeholder["height"],
                             fit=ft.ImageFit.CONTAIN,
                             border_radius=ft.border_radius.all(10),
                         )
                     else:
                         # 画像を読み込み、16:9の枠内に収まるように中央配置した背景画像を作成
-                        with Image.open(thumbnail_img_src) as img:
-                            img_width, img_height = img.size
-                            perfect_img_size = self.compute_perfect_size(page, img_width, img_height, key)
+                        with Image.open(entry_thumbnail_img_src) as img:
+                            entry_img_width, entry_img_height = img.size
+                            entry_perfect_img_size = self.compute_perfect_size(page, entry_img_width, entry_img_height, key)
                             # 灰色の背景画像作成
                             # リサイズはなし
-                            background = Image.new("RGB", (perfect_img_size["width"], perfect_img_size["height"]), (128, 128, 128))
-                            background.paste(img, (perfect_img_size["offset_x"], perfect_img_size["offset_y"]))
+                            entry_background = Image.new("RGB", (entry_perfect_img_size["width"], entry_perfect_img_size["height"]), (128, 128, 128))
+                            entry_background.paste(img, (entry_perfect_img_size["offset_x"], entry_perfect_img_size["offset_y"]))
                             # サムネイル画像配置枠
-                            frame_width = perfect_img_size["frame_width"]
-                            frame_height = perfect_img_size["frame_height"]
+                            entry_frame_width = entry_perfect_img_size["frame_width"]
+                            entry_frame_height = entry_perfect_img_size["frame_height"]
                             # .temp内の一時ファイルに保存
-                            with tempfile.NamedTemporaryFile(delete=False, dir=self.temp_dir, suffix=".jpg") as temp_file:
-                                temp_path = temp_file.name
-                                background.save(temp_path, format="JPEG", quality=95) # JPG形式で保存
+                            with tempfile.NamedTemporaryFile(delete=False, dir=self.temp_dir, suffix=".jpg") as entry_temp_file:
+                                entry_temp_path = entry_temp_file.name
+                                entry_background.save(entry_temp_path, format="JPEG", quality=95) # JPG形式で保存
                         # 元のファイルをバックアップ
-                        backup_path = thumbnail_img_src + ".bak"
-                        os.rename(thumbnail_img_src, backup_path)
+                        entry_backup_path = entry_thumbnail_img_src + ".bak"
+                        os.rename(entry_thumbnail_img_src, entry_backup_path)
                         # 一時ファイルを元のファイルに置き換え
-                        os.rename(temp_path, thumbnail_img_src)
+                        os.rename(entry_temp_path, entry_thumbnail_img_src)
                         # バックアップ削除(上書きが成功した場合)
-                        os.remove(backup_path)
-                        video_thumbnail_img = ft.Image(
-                            src=thumbnail_img_src,
-                            width=frame_width,
-                            height=frame_height,
+                        os.remove(entry_backup_path)
+                        entry_video_thumbnail_img = ft.Image(
+                            src=entry_thumbnail_img_src,
+                            width=entry_frame_width,
+                            height=entry_frame_height,
                             fit=ft.ImageFit.CONTAIN,
                             border_radius=ft.border_radius.all(10),
                         )
                     # RadioGroupを作成
                     # 保存形式を個々に選択できるようにする(MovieとMusic)
-                    rg = ft.RadioGroup(
+                    entry_rg = ft.RadioGroup(
                         value=settings.content_type,
                         content=ft.Row([
                             ft.Radio(value="movie", label="Movie"),
                             ft.Radio(value="music", label="Music"),
                         ]),
                     )
-                    delete_icon = ft.IconButton(
+                    # lambda式の「遅延束縛」を回避するためにデフォルト引数としてkeyをバインドする
+                    entry_delete_icon = ft.IconButton(
                         icon=ft.icons.DELETE_FOREVER_ROUNDED,
-                        on_click=lambda e: self.remove_card(e, key, page, url)
+                        on_click=lambda e, key=key : self.remove_card(e, key, page, url)
                     )
-                    download_icon = ft.IconButton(
-                        icon=ft.icons.DOWNLOAD,
-                        on_click=lambda e: self.download_video_by_key(e, key, page)
+                    entry_download_icon = ft.IconButton(
+                        icon=ft.icons.CLOUD_DOWNLOAD_ROUNDED,
+                        on_click=lambda e, key=key: self.download_video_by_key(e, key, page)
                     )
-                    progress = ft.ProgressBar(
+                    entry_progress = ft.ProgressBar(
                         visible=False,
                         value=None,
                     )
-                    progress_container = ft.Container(
-                        content=progress,
+                    entry_progress_container = ft.Container(
+                        content=entry_progress,
                         expand=True, # 親であるCardの幅いっぱいに広がるように
                         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                         border_radius=ft.border_radius.all(8),
                     )
-                    about_info = ft.Column(
+                    entry_about_info = ft.Column(
                         controls=[
-                            video_title,
+                            entry_video_title,
                             ft.Row(
                                 controls=[
-                                    video_uploader,
+                                    entry_video_uploader,
                                     ft.Row(
                                         controls=[
-                                            rg,
-                                            video_date,
+                                            entry_rg,
+                                            ft.Column(
+                                                controls=[
+                                                    entry_video_date,
+                                                    ft.Text(
+                                                        value=f"{data.get('numbers', 'Unknown')}個"
+                                                    ),
+                                                ],
+                                                horizontal_alignment=ft.CrossAxisAlignment.CENTER
+                                            ),
                                         ],
                                         alignment=ft.MainAxisAlignment.END
                                     ),
@@ -809,27 +1014,27 @@ class YDownloader:
                         ],
                         expand=True,
                     )
-                    info = ft.Row(
+                    entry_info = ft.Row(
                         controls=[
-                            video_thumbnail_img,
-                            about_info,
+                            entry_video_thumbnail_img,
+                            entry_about_info,
                             ft.Column(
                                 controls=[
-                                    download_icon,
-                                    delete_icon,
+                                    entry_download_icon,
+                                    entry_delete_icon,
                                 ],
                                 alignment=ft.alignment.center,
                             ),
                         ],
                         alignment=ft.alignment.center,
                     )
-                    video_card = ft.Card(
+                    entry_video_card = ft.Card(
                         key=key,
                         content=ft.Container(
                             content=ft.Column(
                                 controls=[
-                                    info,
-                                    progress_container,
+                                    entry_info,
+                                    entry_progress_container,
                                 ],
                                 spacing=10,
                             ),
@@ -837,108 +1042,246 @@ class YDownloader:
                         ),
                         margin=0,
                     )
-                    self.cards[key] = video_card
-                    page.add(video_card)
-                    # self.card_uids[key] = video_card.uid
+                    self.cards[key] = entry_video_card
+                    self.downloader.cards[key] = entry_video_card # こうすることで、DownloadクラスからCardの要素の操作ができる
                     self.added_urls.append(url)
+                    page.add(entry_video_card)
                 else:
-                    # ここはプレイリストのリンクが入力されて、メタデータが正常に入手できなかった場合
-                    playlist_title = ft.TextField(
-                        label="プレイリスト名",
-                        value="Unknown",
-                        adaptive=True,
-                    )
-                    playlist_date = ft.Text(
-                        value="Unknown",
-                    )
-                    playlist_uploader = ft.TextField(
-                        label="投稿者",
-                        value="Unknown",
-                        adaptive=True,
-                    )
-                    placeholder_playlist = self.compute_perfect_size(page, 0, 0, key)
-                    playlist_thumb_img = ft.Image(
-                        src=placeholder_playlist["src"],
-                        width=placeholder_playlist["width"],
-                        height=placeholder_playlist["height"],
-                        fit=ft.ImageFit.CONTAIN,
-                        border_radius=ft.border_radius.all(10),
-                    )
-                    playlist_rg = ft.RadioGroup(
-                        value=settings.content_type,
-                        content=ft.Row([
-                            ft.Radio(value="movie", label="Movie"),
-                            ft.Radio(value="music", label="Music"),
-                        ]),
-                    )
-                    playlist_delete_icon = ft.IconButton(
-                        icon=ft.icons.DELETE_FOREVER_ROUNDED,
-                        on_click=lambda e: self.remove_card(e, key, page, url)
-                    )
-                    playlist_download_icon = ft.IconButton(
-                        icon=ft.icons.DOWNLOAD,
-                        on_click=lambda e: self.download_video_by_key(e, key, page)
-                    )
-                    playlist_progress = ft.ProgressBar(
-                        visible=False,
-                        value=None,
-                    )
-                    playlist_progress_container = ft.Container(
-                        content=playlist_progress,
-                        expand=True,
-                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                        border_radius=ft.border_radius.all(8),
-                    )
-                    playlist_about_info = ft.Column(
-                        controls=[
-                            playlist_title,
-                            ft.Row(
-                                controls=[
-                                    playlist_uploader,
-                                    ft.Row(
-                                        controls=[
-                                            playlist_rg,
-                                            playlist_date,
-                                        ],
-                                        alignment=ft.MainAxisAlignment.END
-                                    ),
-                                ],
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                    if not is_playlist:
+                        video_title = ft.TextField(
+                            label="タイトル",
+                            value=data.get("title", "Unknown Title"),
+                            adaptive=True,
+                        )
+                        video_date = ft.Text(
+                            value=data.get("upload_date", "Unknown"),
+                        )
+                        video_uploader = ft.TextField(
+                            label="投稿者",
+                            value=data.get("uploader", "Unknown"),
+                            adaptive=True,
+                        )
+                        thumbnail_img_src = data.get("thumbnail_path", None)
+                        if not thumbnail_img_src:
+                            # サムネイルがない場合は、compute_perfect_sizeでプレースホルダー画像を生成
+                            placeholder = self.compute_perfect_size(page, 0, 0, key)
+                            video_thumbnail_img = ft.Image(
+                                src=placeholder["src"],
+                                width=placeholder["width"],
+                                height=placeholder["height"],
+                                fit=ft.ImageFit.CONTAIN,
+                                border_radius=ft.border_radius.all(10),
                             )
-                        ],
-                        expand=True,
-                    )
-                    playlist_info = ft.Row(
-                        controls=[
-                            playlist_thumb_img,
-                            playlist_about_info,
-                            ft.Column(
-                                controls=[
-                                    playlist_download_icon,
-                                    playlist_delete_icon,
-                                ],
-                                alignment=ft.alignment.center,
+                        else:
+                            # 画像を読み込み、16:9の枠内に収まるように中央配置した背景画像を作成
+                            with Image.open(thumbnail_img_src) as img:
+                                img_width, img_height = img.size
+                                perfect_img_size = self.compute_perfect_size(page, img_width, img_height, key)
+                                # 灰色の背景画像作成
+                                # リサイズはなし
+                                background = Image.new("RGB", (perfect_img_size["width"], perfect_img_size["height"]), (128, 128, 128))
+                                background.paste(img, (perfect_img_size["offset_x"], perfect_img_size["offset_y"]))
+                                # サムネイル画像配置枠
+                                frame_width = perfect_img_size["frame_width"]
+                                frame_height = perfect_img_size["frame_height"]
+                                # .temp内の一時ファイルに保存
+                                with tempfile.NamedTemporaryFile(delete=False, dir=self.temp_dir, suffix=".jpg") as temp_file:
+                                    temp_path = temp_file.name
+                                    background.save(temp_path, format="JPEG", quality=95) # JPG形式で保存
+                            # 元のファイルをバックアップ
+                            backup_path = thumbnail_img_src + ".bak"
+                            os.rename(thumbnail_img_src, backup_path)
+                            # 一時ファイルを元のファイルに置き換え
+                            os.rename(temp_path, thumbnail_img_src)
+                            # バックアップ削除(上書きが成功した場合)
+                            os.remove(backup_path)
+                            video_thumbnail_img = ft.Image(
+                                src=thumbnail_img_src,
+                                width=frame_width,
+                                height=frame_height,
+                                fit=ft.ImageFit.CONTAIN,
+                                border_radius=ft.border_radius.all(10),
+                            )
+                        # RadioGroupを作成
+                        # 保存形式を個々に選択できるようにする(MovieとMusic)
+                        rg = ft.RadioGroup(
+                            value=settings.content_type,
+                            content=ft.Row([
+                                ft.Radio(value="movie", label="Movie"),
+                                ft.Radio(value="music", label="Music"),
+                            ]),
+                        )
+                        # lambda式の「遅延束縛」を回避するためにデフォルト引数としてkeyをバインドする
+                        delete_icon = ft.IconButton(
+                            icon=ft.icons.DELETE_FOREVER_ROUNDED,
+                            on_click=lambda e, key=key : self.remove_card(e, key, page, url)
+                        )
+                        download_icon = ft.IconButton(
+                            icon=ft.icons.CLOUD_DOWNLOAD_ROUNDED,
+                            on_click=lambda e, key=key: self.download_video_by_key(e, key, page)
+                        )
+                        progress = ft.ProgressBar(
+                            visible=False,
+                            value=None,
+                        )
+                        progress_container = ft.Container(
+                            content=progress,
+                            expand=True, # 親であるCardの幅いっぱいに広がるように
+                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                            border_radius=ft.border_radius.all(8),
+                        )
+                        about_info = ft.Column(
+                            controls=[
+                                video_title,
+                                ft.Row(
+                                    controls=[
+                                        video_uploader,
+                                        ft.Row(
+                                            controls=[
+                                                rg,
+                                                video_date,
+                                            ],
+                                            alignment=ft.MainAxisAlignment.END
+                                        ),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                                )
+                            ],
+                            expand=True,
+                        )
+                        info = ft.Row(
+                            controls=[
+                                video_thumbnail_img,
+                                about_info,
+                                ft.Column(
+                                    controls=[
+                                        download_icon,
+                                        delete_icon,
+                                    ],
+                                    alignment=ft.alignment.center,
+                                ),
+                            ],
+                            alignment=ft.alignment.center,
+                        )
+                        video_card = ft.Card(
+                            key=key,
+                            content=ft.Container(
+                                content=ft.Column(
+                                    controls=[
+                                        info,
+                                        progress_container,
+                                    ],
+                                    spacing=10,
+                                ),
+                                padding=4,
                             ),
-                        ],
-                        alignment=ft.alignment.center,
-                    )
-                    playlist_card = ft.Card(
-                        key=key,
-                        content=ft.Container(
-                            content=ft.Column(
-                                controls=[
-                                    playlist_info,
-                                    playlist_progress_container,
-                                ],
-                                spacing=10,
+                            margin=0,
+                        )
+                        self.cards[key] = video_card
+                        self.downloader.cards[key] = video_card # こうすることで、DownloadクラスからCardの要素の操作ができる
+                        self.added_urls.append(url)
+                        page.add(video_card)
+                        # self.card_uids[key] = video_card.uid
+                    else:
+                        # ここはプレイリストのリンクが入力されて、メタデータが正常に入手できなかった場合
+                        playlist_title = ft.TextField(
+                            label="プレイリスト名",
+                            value="Unknown",
+                            adaptive=True,
+                        )
+                        playlist_date = ft.Text(
+                            value="Unknown",
+                        )
+                        playlist_uploader = ft.TextField(
+                            label="投稿者",
+                            value="Unknown",
+                            adaptive=True,
+                        )
+                        placeholder_playlist = self.compute_perfect_size(page, 0, 0, key)
+                        playlist_thumb_img = ft.Image(
+                            src=placeholder_playlist["src"],
+                            width=placeholder_playlist["width"],
+                            height=placeholder_playlist["height"],
+                            fit=ft.ImageFit.CONTAIN,
+                            border_radius=ft.border_radius.all(10),
+                        )
+                        playlist_rg = ft.RadioGroup(
+                            value=settings.content_type,
+                            content=ft.Row([
+                                ft.Radio(value="movie", label="Movie"),
+                                ft.Radio(value="music", label="Music"),
+                            ]),
+                        )
+                        # lambda式の「遅延束縛」を回避するためにデフォルト引数としてkeyをバインドする
+                        playlist_delete_icon = ft.IconButton(
+                            icon=ft.icons.DELETE_FOREVER_ROUNDED,
+                            on_click=lambda e, key=key: self.remove_card(e, key, page, url)
+                        )
+                        playlist_download_icon = ft.IconButton(
+                            icon=ft.icons.CLOUD_DOWNLOAD_ROUNDED,
+                            on_click=lambda e, key=key: self.download_video_by_key(e, key, page)
+                        )
+                        playlist_progress = ft.ProgressBar(
+                            visible=False,
+                            value=None,
+                        )
+                        playlist_progress_container = ft.Container(
+                            content=playlist_progress,
+                            expand=True,
+                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                            border_radius=ft.border_radius.all(8),
+                        )
+                        playlist_about_info = ft.Column(
+                            controls=[
+                                playlist_title,
+                                ft.Row(
+                                    controls=[
+                                        playlist_uploader,
+                                        ft.Row(
+                                            controls=[
+                                                playlist_rg,
+                                                playlist_date,
+                                            ],
+                                            alignment=ft.MainAxisAlignment.END
+                                        ),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                                )
+                            ],
+                            expand=True,
+                        )
+                        playlist_info = ft.Row(
+                            controls=[
+                                playlist_thumb_img,
+                                playlist_about_info,
+                                ft.Column(
+                                    controls=[
+                                        playlist_download_icon,
+                                        playlist_delete_icon,
+                                    ],
+                                    alignment=ft.alignment.center,
+                                ),
+                            ],
+                            alignment=ft.alignment.center,
+                        )
+                        playlist_card = ft.Card(
+                            key=key,
+                            content=ft.Container(
+                                content=ft.Column(
+                                    controls=[
+                                        playlist_info,
+                                        playlist_progress_container,
+                                    ],
+                                    spacing=10,
+                                ),
+                                padding=4,
                             ),
-                            padding=4,
-                        ),
-                        margin=0,
-                    )
-                    self.cards[key] = playlist_card
-                    self.added_urls.append(url)
-                    page.add(playlist_card)
+                            margin=0,
+                        )
+                        self.cards[key] = playlist_card
+                        self.downloader.cards[key] = playlist_card # こうすることで、DownloadクラスからCardの要素の操作ができる
+                        self.added_urls.append(url)
+                        page.add(playlist_card)
             except Exception as ex:
                 print(f"Error adding video card: {ex}")
             time.sleep(0.5) # 連続処理の負荷を軽減
@@ -954,8 +1297,15 @@ class YDownloader:
                 return
             tf.value = "" # add_video_cardは実行に時間がかかるため、先にクリアしておく
             page.update()
-            # 正常な値かどうかを確認&重複確認(既に追加済みのカードのURLと重複がないかも確認)
-            valid_urls = [s for s in map(str.strip, urls) if s and s not in self.pre_url_list and s not in self.added_urls]
+            # 各URLについて、前後の空白を削除する。
+            # もし空白だけの場合は空文字列になるため、除外される。
+            # また、既に追加済みのURLリスト（self.pre_url_list, self.added_urls）と重複していないかもチェック
+            valid_urls = []
+            for url in urls:
+                trimmed_url = url.strip()  # 前後の空白を削除
+                # trimmed_urlが空でなく、かつ重複していない場合にのみリストへ追加
+                if trimmed_url and trimmed_url not in self.pre_url_list and trimmed_url not in self.added_urls and trimmed_url not in valid_urls:
+                    valid_urls.append(trimmed_url)
             if valid_urls: # 追加するURLがある場合の処理
                 with self.condition_pre:
                     self.pre_total_urls += len(valid_urls) # 追加するURLの数を追加
@@ -992,15 +1342,11 @@ class YDownloader:
             target_card = self.cards[key]
             target_column = target_card.content.content
             target_info = target_column.controls[0]
-            # プログレスバーを見えるようにする
             target_progress_bar = target_column.controls[1].content
-            target_progress_bar.visible = True # これでプログレスバーが見えるようになる(page.updateが必要)
-            page.update()
             target_about_info = target_info.controls[1]
             target_title = target_about_info.controls[0]
-            target_upload_info = target_about_info.controls[1].controls[1]
-            target_uploader = target_upload_info.controls[0]
-            target_content_type = target_about_info.controls[1].controls[0].value
+            target_uploader = target_about_info.controls[1].controls[0]
+            target_content_type = target_about_info.controls[1].controls[1].controls[0]
             json_path = os.path.join(self.temp_dir, f"{key}.json")
             # JSONファイルを読み込んで、更新
             with open(json_path, "r", encoding="utf-8") as f:
@@ -1011,14 +1357,25 @@ class YDownloader:
             # print(data["title"]) # デバッグ用
             data["uploader"] = target_uploader.value
             # print(data["uploader"]) # デバッグ用
-            data["content_type"] = target_content_type
-            # print(data["content_type"]) # デバッグ用
+            data["content_type"] = target_content_type.value
+            print(data["content_type"]) # デバッグ用
             # 更新したデータをJSONファイルに書き戻す
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             print(f"{key}.jsonを更新しました")
+            # ダウンロードボタンとデリートボタンを押せなくする
+            download_button = target_info.controls[2].controls[0]
+            delete_button = target_info.controls[2].controls[1]
+            download_button.disabled = True  # ダウンロードボタンを無効化
+            delete_button.disabled = True # デリートボタンを無効化
+            target_title.disabled = True # タイトル入力欄を無効化
+            target_content_type.disabled = True # ダウンロードタイプ選択無効化
+            target_uploader.disabled = True # 投稿者テキストフィールド無効化
+            # プログレスバーを見えるようにする
+            target_progress_bar.visible = True # これでプログレスバーが見えるようになる(page.updateが必要)
+            page.update() # ページ更新
             # ダウンロード処理開始
-            self.downloader._check_content_type(key=key)
+            self.downloader._check_content_type(key=key, page=page)
         except Exception as ex:
             raise ex
     
@@ -1048,6 +1405,42 @@ class YDownloader:
             print(f"Error in toggle_theme: {ex}")
             traceback.print_exc()
     
+    def import_text_files(self, e, tf, page):
+        """読み込むURLが記入されたテキストファイルを読み込んで、検索欄に追加"""
+        try:
+            root = tk.Tk()
+            root.withdraw() # メインウィンドウを非表示にする
+            file_paths = filedialog.askopenfilenames(
+                title="テキストファイルを選択",
+                filetypes=[("Text files", "*.txt")],  # テキストファイルのみ選択可能
+            )
+            if not file_paths:
+                print("ファイルが選択されませんでした。")
+                return
+            all_urls = [] # テキストファイルから読み取った全てのURLを格納するリスト
+            for file_path in file_paths:
+                with open(file_path, "r", encoding="utf-8") as file:
+                    # ファイルの内容を行ごとに読み込み
+                    urls = file.read().split("\n")
+                    all_urls.extend(urls)
+            # ここで習得したURLリスト(all_urls)の前後の空白を削除し、重複を取り除く
+            valid_urls = []
+            for url in all_urls:
+                trimmed_url = url.strip()  # 前後の空白を削除
+                # 空文字でなく、既に追加されていないURLのみを追加
+                if trimmed_url and trimmed_url not in self.pre_url_list and trimmed_url not in self.added_urls and trimmed_url not in valid_urls:
+                    valid_urls.append(trimmed_url)
+            # 追加するURLが存在する場合、tf.valueにそれをセット(tf.valueの値をクリアしないように)
+            if valid_urls:
+                # 既存の内容がある場合は改行で区切って追加
+                if tf.value:
+                    tf.value += "\n" + "\n".join(valid_urls)
+                else:
+                    tf.value = "\n".join(valid_urls)
+                page.update()
+        except Exception as ex:
+            raise ex
+    
     def main(self, page: ft.Page):
         """
         Fletのページを構築するメインメソッド
@@ -1056,13 +1449,25 @@ class YDownloader:
         page.scroll = "adaptive"
         # ウィンドウのリサイズイベントを監視する(リサイズが完了したタイミングで実行されるようにする)
         page.on_resized = lambda e: self.handle_window_resize(e, page)
-        # プログレスバーの作成
-        progress_bar = ft.ProgressBar(value=0, visible=False) # visible=Trueで表示
-        progress_container = ft.Container(
-            content=progress_bar,
-            height=10,
-            padding=ft.padding.all(5),
+        # プログレスバーの作成(読み込みの進捗段階を表示する)
+        progress_bar = ft.ProgressBar(
+            value=(self.pre_current_urls / self.pre_total_urls) if self.pre_total_urls > 0 else 0
         )
+        progress_bar_container = ft.Container(
+            content=progress_bar,
+            expand=True, # 親の幅いっぱいに広がるように
+        )
+        progress_text = ft.Text(value=f"{self.pre_current_urls}/{self.pre_total_urls}")
+        progress = ft.Row(
+            controls=[
+                progress_bar_container,
+                progress_text,
+            ],
+            visible=False,
+            expand=True,
+        )
+        # ここでprogress.visibleとしてしまうと、インスタンス化できないので、ページの繁栄ができない
+        self.progress = progress # これでprogressのvisibleを操作する
         # フォントの読み込み
         font_dir = os.path.join(get_script_dir(), "assets", "fonts", "ZenOldMincho")
         page.fonts = {
@@ -1112,6 +1517,11 @@ class YDownloader:
             icon=ft.icons.SEARCH_ROUNDED,
             on_click=lambda e: self.handle_url_submit(e, tf, page)
         )
+        # テキストファイル取り込みボタン
+        ib = ft.IconButton(
+            icon=ft.icons.DOWNLOAD_ROUNDED,
+            on_click=lambda e: self.import_text_files(e, tf, page)
+        )
         
         # テーマ切り替えボタン
         toggle_button = ft.ElevatedButton("テーマを切り替える", on_click=lambda e: self.toggle_theme(e, page))
@@ -1125,13 +1535,22 @@ class YDownloader:
                 content=ft.Container(
                     content=ft.Row(
                         controls=[
-                            tf, sb
+                            tf,
+                            sb,
                         ], spacing=20,
                     ), padding=10,
                 ), margin=5,
             ),
-            # rg,
-            # toggle_button,
+            ft.Container(
+                content=ft.Row(
+                    controls=[
+                        progress,
+                        ib,
+                    ],
+                    spacing=20,
+                    alignment=ft.MainAxisAlignment.END,
+                ), padding=10,
+            ),
         )
         
         # URL監視スレッドの起動
@@ -1143,6 +1562,17 @@ class YDownloader:
         processing_thread.start()
 
 if __name__ == "__main__":
+    # externalディレクトリのパスを取得
+    EXTERNAL_PATH = get_external_path(app_name="YDownloader")
+    if not os.path.exists(EXTERNAL_PATH):
+        raise FileExistsError("externalフォルダーが存在しません。インストールし直してください。")
+    # externalディレクトリを sys.path の先頭に追加することで、yt_dlp の import が可能に
+    sys.path.insert(0, EXTERNAL_PATH)
+    # ここで external/yt_dlp 内のモジュールが import 可能になる
+    try:
+        from yt_dlp import YoutubeDL
+    except Exception as ex:
+        raise ImportError(f"yt-dlp の import に失敗しました。externalディレクトリ({EXTERNAL_PATH})内に正しく配置されているか確認してください。") from ex
     settings = DefaultSettingsLoader()
     downloader = Download(settings)
     app = YDownloader(settings, downloader)
