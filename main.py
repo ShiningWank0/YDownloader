@@ -33,6 +33,7 @@ yt-dlpのバージョンアップにexe化後にパッチを当てるなどし�
 """
 
 def get_download_folder():
+    """ダウンロードフォルダーを取得"""
     # Windowsの場合、レジストリから取得
     if sys.platform == "win32":
         try:
@@ -152,6 +153,7 @@ def cleanup_temp_dir(temp_dir):
 
 def setup_logging(app_name="YDownloader", loglevel=logging.INFO):
     """ログファイルを使用したログの記録のセットアップ関数(exc_info=Trueで詳細なログを記録)"""
+    global log_file
     # PyInstaller, cx_Freeze, Nuitkaによる実行ファイル化後に供えた処理
     if getattr(sys, "frozen", False) or "__compiled__" in globals():
         candidate = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -182,13 +184,13 @@ def setup_logging(app_name="YDownloader", loglevel=logging.INFO):
     # loggerにhandlerをセット
     logger.addHandler(rotating_handler)
     
-    # # 開発中(ソースコードのまま)では、コンソールにも出力する
-    # console_handler = logging.StreamHandler(sys.stdout)
-    # console_handler.setLevel(loglevel) # 必要に応じてレベルをDEBUGにすることでより詳細な情報を得られる
-    # console_handler.setFormatter(formatter)
-    # logger.addHandler(console_handler)
+    # 開発中(ソースコードのまま)では、コンソールにも出力する
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(loglevel) # 必要に応じてレベルをDEBUGにすることでより詳細な情報を得られる
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
     
-    # logger.info(f"log_dir: {log_dir}")
+    logger.info(f"log_dir: {log_dir}")
 
 def sanitize_filename(filename: str, replacement: str = "_") -> str:
     """
@@ -1593,6 +1595,8 @@ class YDownloader:
         try:
             root = tk.Tk()
             root.withdraw() # メインウィンドウを非表示にする
+            root.lift() # ウィンドウを最前面に持ってくる
+            root.attributes("-topmost", True)  # 常に最前面に表示
             file_paths = filedialog.askopenfilenames(
                 title="テキストファイルを選択",
                 filetypes=[("Text files", "*.txt")],  # テキストファイルのみ選択可能
@@ -1681,11 +1685,109 @@ class YDownloader:
         page.views.append(self.settings_view(page))
         page.update()
     
+    def go_to_logs_page(self, e, page: ft.Page):
+        # ログページをviewsに追加して遷移
+        page.views.append(self.logs_view(page))
+        page.update()
+    
+    def logs_view(self, page: ft.Page) -> ft.View:
+        def go_back_for_logs(e):
+            page.views.pop()
+            page.update()
+        
+        def share_logfile(e, page):
+            self.logger.info("ログファイル出力に挑戦します")
+            # ログファイル読み込み
+            try:
+                log_file_name = os.path.basename(log_file)
+                log_file_copyname = os.path.splitext(log_file_name)[0] + "_copy" + os.path.splitext(log_file_name)[1]
+                # Tkinterウィンドウを隠してファイル選択ダイアログを表示
+                root = tk.Tk()
+                root.withdraw()  # ウィンドウを非表示にする
+                root.lift() # ウィンドウを最前面に持ってくる
+                root.attributes("-topmost", True)  # 常に最前面に表示
+                # 保存場所を選択してもらう
+                destination = filedialog.askdirectory(title="保存先を選択")
+                if destination: # ユーザーが保存先を選択した場合
+                    destination_file = os.path.join(destination, log_file_copyname) # コピー先のファイルパス
+                    shutil.copy(log_file, destination_file) # ファイルのコピー
+                    self.logger.info(f"ファイルが保存されました: {destination_file}")
+                else:
+                    self.logger.info("ログファイル出力がキャンセルされました。")
+            except Exception as ex:
+                self.logger.error(f"ログファイル出力に失敗しました: {ex}")
+                open_dlg(copy_err_dlg, page)
+        
+        def read_logfile():
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception as ex:
+                self.logger.error(
+                    f"ログファイルの読み取りに失敗しました: {ex}",
+                    exc_info=True
+                )
+                return f"ログファイルの読み取りに失敗しました: {ex}"
+        
+        log_content = read_logfile()
+        log_column = ft.Column(
+            controls=[
+                ft.Text(
+                    value=log_content
+                )
+            ],
+        )
+        
+        # def scroll_to_end(e, page: ft.Page):
+        #     log_column.scroll_to(offset=-1, duration=1000) # Columnを最後までスクロール
+        #     page.update()
+        
+        logs_page = ft.View(
+            route="/settings/logs",
+            controls=[
+                ft.AppBar(
+                    title=ft.Text("ログ"),
+                    leading=ft.IconButton(
+                        icon=ft.icons.ARROW_BACK,
+                        on_click=go_back_for_logs,
+                        tooltip="戻る"
+                    ),
+                    actions=[
+                        # ft.IconButton(
+                        #     icon=ft.icons.ARROW_DROP_DOWN_CIRCLE_OUTLINED,
+                        #     on_click=lambda e: scroll_to_end(e, page),
+                        #     tooltip="ログファイル出力"
+                        # ),
+                        ft.IconButton(
+                            icon=ft.icons.IOS_SHARE_ROUNDED,
+                            on_click=lambda e: share_logfile(e, page),
+                            tooltip="ログファイル出力"
+                        ),
+                    ],
+                    adaptive=True,
+                    center_title=True
+                ),
+                log_column,
+            ],
+            scroll=ft.ScrollMode.ADAPTIVE
+        )
+        return logs_page
+    
     def settings_view(self, page: ft.Page) -> ft.View:
         # 設定ページの戻るボタン押下時の処理
         def go_back(e):
             page.views.pop() # 現在のビュー(設定ページ)を削除
+            page.theme_mode = getattr(ft.ThemeMode, settings.page_theme, None) # ページテーマをデフォルト値に戻す
+            if not page.theme_mode:
+                self.logger.error(
+                    "page.theme_modeの値が不正です。",
+                    exc_info=True
+                )
+                sys.exit(1)
             page.update()
+        
+        def save_settings(e):
+            self.logger.info("デフォルト設定を更新しました。")
         
         # テーマ選択時の処理
         def change_theme(e):
@@ -1703,7 +1805,13 @@ class YDownloader:
                 ft.dropdown.Option("Dark"),
             ],
             value="Light" if page.theme_mode == ft.ThemeMode.LIGHT else "Dark",
-            on_change=change_theme
+            on_change=change_theme,
+            tooltip="テーマを切り替える",
+            alignment=ft.alignment.center
+        )
+        
+        content_type_dropdown = ft.Dropdown(
+            label="ダウンロードタイプ選択"
         )
         
         settings_page = ft.View(
@@ -1714,9 +1822,17 @@ class YDownloader:
                     leading=ft.IconButton(
                         icon=ft.icons.ARROW_BACK,
                         on_click=go_back,
+                        tooltip="戻る"
                     ),
+                    adaptive=True,
+                    center_title=True
                 ),
                 theme_dropdown,
+                ft.TextButton(
+                    "ログ閲覧",
+                    on_click=lambda e: self.go_to_logs_page(e, page),
+                    tooltip="ログ閲覧",
+                ),
             ],
             scroll=ft.ScrollMode.ADAPTIVE,
         )
@@ -1729,7 +1845,7 @@ class YDownloader:
         page.title = "YDownloader"
         
         # global宣言が必要
-        global content_type_err_dlg, network_err_dlg, playlist_error_dlg, retry_error_dlg, link_err_dlg, err_dlg, err_happen_dlg, delete_err_dlg
+        global content_type_err_dlg, network_err_dlg, playlist_error_dlg, retry_error_dlg, link_err_dlg, err_dlg, err_happen_dlg, delete_err_dlg, save_err_dlg, copy_err_dlg
         content_type_err_dlg = ft.AlertDialog(
             title=ft.Text("エラー"),
             modal=True,
@@ -1822,6 +1938,30 @@ class YDownloader:
                 ft.TextButton(
                     "閉じる",
                     on_click=lambda e: close_dlg(e, delete_err_dlg, page)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        save_err_dlg = ft.AlertDialog(
+            title=ft.Text("エラー"),
+            modal=True,
+            content=ft.Text(f"設定の保存に失敗しました。"),
+            actions=[
+                ft.TextButton(
+                    "閉じる",
+                    on_click=lambda e: close_dlg(e, save_err_dlg, page)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        copy_err_dlg = ft.AlertDialog(
+            title=ft.Text("エラー"),
+            modal=True,
+            content=ft.Text(f"ログファイルのコピーに失敗しました。"),
+            actions=[
+                ft.TextButton(
+                    "閉じる",
+                    on_click=lambda e: close_dlg(e, copy_err_dlg, page)
                 )
             ],
             actions_alignment=ft.MainAxisAlignment.END,
