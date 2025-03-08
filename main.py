@@ -184,13 +184,13 @@ def setup_logging(app_name="YDownloader", loglevel=logging.INFO):
     # loggerにhandlerをセット
     logger.addHandler(rotating_handler)
     
-    # 開発中(ソースコードのまま)では、コンソールにも出力する
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(loglevel) # 必要に応じてレベルをDEBUGにすることでより詳細な情報を得られる
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    # # 開発中(ソースコードのまま)では、コンソールにも出力する
+    # console_handler = logging.StreamHandler(sys.stdout)
+    # console_handler.setLevel(loglevel) # 必要に応じてレベルをDEBUGにすることでより詳細な情報を得られる
+    # console_handler.setFormatter(formatter)
+    # logger.addHandler(console_handler)
     
-    logger.info(f"log_dir: {log_dir}")
+    # logger.info(f"log_dir: {log_dir}")
 
 def sanitize_filename(filename: str, replacement: str = "_") -> str:
     """
@@ -1807,12 +1807,85 @@ class YDownloader:
             value="Light" if page.theme_mode == ft.ThemeMode.LIGHT else "Dark",
             on_change=change_theme,
             tooltip="テーマを切り替える",
-            alignment=ft.alignment.center
         )
         
         content_type_dropdown = ft.Dropdown(
-            label="ダウンロードタイプ選択"
+            label="ダウンロードタイプ選択",
+            options=[
+                ft.dropdown.Option("Movie"),
+                ft.dropdown.Option("Music"),
+            ],
+            value="Movie" if settings.content_type == "movie" else "Music",
+            tooltip="ダウンロードタイプ切り替える",
         )
+        
+        def change_save_dir(e):
+            try:
+                self.logger.info("ダウンロードフォルダーを変更を行います。")
+                root = tk.Tk()
+                root.withdraw() # メインウィンドウを非表示にする
+                root.lift() # ウィンドウを最前面に持ってくる
+                root.attributes("-topmost", True)  # 常に最前面に表示
+                # 保存場所を選択してもらう
+                destination = filedialog.askdirectory(title="ダウンロード先を選択")
+                if destination: # ユーザーが保存先を選択した場合
+                    save_dir.text = destination
+                    self.logger.info(f"ダウンロード先が変更されました: {destination}")
+                    page.update()
+                else:
+                    self.logger.info("ダウンロード先選択がキャンセルされました。")
+            except Exception as ex:
+                self.logger.error(f"ダウンロード先選択に失敗しました: {ex}")
+                open_dlg(dl_err_dlg, page)
+        
+        save_dir = ft.TextButton(
+            text=settings.download_dir,
+            on_click=change_save_dir,
+            tooltip="ダウンロード先フォルダー",
+        )
+        
+        def settings_save(e):
+            try:
+                self.logger.info("設定を更新します。")
+                settings.update_setting("retry_chance", retry_chance_number.value)
+                set_content_type = "movie" if content_type_dropdown.value == "Movie" else "music"
+                settings.update_setting("content_type", set_content_type)
+                set_theme_mode = "LIGHT" if theme_dropdown.value == "Light" else "DARK"
+                settings.update_setting("page_theme", set_theme_mode)
+                settings.update_setting("download_dir", save_dir.text)
+                open_dlg(settings_save_dlg, page)
+            except Exception as ex:
+                self.logger.error(f"設定の更新に失敗しました: {ex}")
+                open_dlg(save_err_dlg, page)
+        
+        settings_save_btn = ft.TextButton(
+            "設定を保存する",
+            icon=ft.icons.SAVE_AS_ROUNDED,
+            on_click=settings_save,
+            expand=True,
+            tooltip="設定を保存する"
+        )
+        
+        def validate_number(e):
+            # 入力が数字以外なら削除
+            e.control.value = "".join(filter(str.isdigit, e.control.value))
+            page.update()
+        
+        retry_chance_number = ft.TextField(
+            label="リトライ回数",
+            value=self.retries, 
+            text_align=ft.TextAlign.CENTER,
+            expand=True,
+            on_change=validate_number
+        )
+        
+        def minus_click(e):
+            retry_chance_number.value = str(int(retry_chance_number.value) - 1)
+            page.update()
+        
+        def plus_click(e):
+            retry_chance_number.value = str(int(retry_chance_number.value) + 1)
+            page.update()
         
         settings_page = ft.View(
             route="/settings",
@@ -1824,14 +1897,41 @@ class YDownloader:
                         on_click=go_back,
                         tooltip="戻る"
                     ),
+                    actions=[(
+                        ft.TextButton(
+                            "ログ閲覧",
+                            on_click=lambda e: self.go_to_logs_page(e, page),
+                            tooltip="ログ閲覧",
+                        )
+                    )],
                     adaptive=True,
                     center_title=True
                 ),
                 theme_dropdown,
-                ft.TextButton(
-                    "ログ閲覧",
-                    on_click=lambda e: self.go_to_logs_page(e, page),
-                    tooltip="ログ閲覧",
+                content_type_dropdown,
+                ft.Row(
+                    controls=[
+                        ft.IconButton(
+                            ft.icons.REMOVE,
+                            on_click=minus_click,
+                            tooltip="リトライ回数を一回減らします"
+                        ),
+                        retry_chance_number,
+                        ft.IconButton(
+                            ft.icons.ADD,
+                            on_click=plus_click,
+                            tooltip="リトライ回数を一回増やします"
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                ),
+                ft.Container(
+                    content=save_dir,
+                    alignment=ft.alignment.center
+                ),
+                ft.Container(
+                    content=settings_save_btn,
+                    alignment=ft.alignment.center
                 ),
             ],
             scroll=ft.ScrollMode.ADAPTIVE,
@@ -1845,7 +1945,7 @@ class YDownloader:
         page.title = "YDownloader"
         
         # global宣言が必要
-        global content_type_err_dlg, network_err_dlg, playlist_error_dlg, retry_error_dlg, link_err_dlg, err_dlg, err_happen_dlg, delete_err_dlg, save_err_dlg, copy_err_dlg
+        global content_type_err_dlg, network_err_dlg, playlist_error_dlg, retry_error_dlg, link_err_dlg, err_dlg, err_happen_dlg, delete_err_dlg, save_err_dlg, copy_err_dlg, dl_err_dlg, settings_save_dlg
         content_type_err_dlg = ft.AlertDialog(
             title=ft.Text("エラー"),
             modal=True,
@@ -1853,7 +1953,8 @@ class YDownloader:
             actions=[
                 ft.TextButton(
                     "閉じる",
-                    on_click=lambda e: close_dlg(e, content_type_err_dlg, page)
+                    on_click=lambda e: close_dlg(e, content_type_err_dlg, page),
+                    tooltip="ダイアログを閉じます"
                 )
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -1865,7 +1966,8 @@ class YDownloader:
             actions=[
                 ft.TextButton(
                     "閉じる", 
-                    on_click=lambda e: close_dlg(e, network_err_dlg, page)
+                    on_click=lambda e: close_dlg(e, network_err_dlg, page),
+                    tooltip="ダイアログを閉じます"
                 )
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -1877,7 +1979,8 @@ class YDownloader:
             actions=[
                 ft.TextButton(
                     "閉じる", 
-                    on_click=lambda e: close_dlg(e, playlist_error_dlg, page)
+                    on_click=lambda e: close_dlg(e, playlist_error_dlg, page),
+                    tooltip="ダイアログを閉じます"
                 )
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -1890,6 +1993,7 @@ class YDownloader:
                 ft.TextButton(
                     "閉じる", 
                     on_click=lambda e: close_dlg(e, retry_error_dlg, page),
+                    tooltip="ダイアログを閉じます"
                 ),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -1901,7 +2005,8 @@ class YDownloader:
             actions=[
                 ft.TextButton(
                     "閉じる", 
-                    on_click=lambda e: close_dlg(e, link_err_dlg, page)
+                    on_click=lambda e: close_dlg(e, link_err_dlg, page),
+                    tooltip="ダイアログを閉じます"
                 )
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -1913,7 +2018,8 @@ class YDownloader:
             actions=[
                 ft.TextButton(
                     "閉じる", 
-                    on_click=lambda e: close_dlg(e, err_dlg, page)
+                    on_click=lambda e: close_dlg(e, err_dlg, page),
+                    tooltip="ダイアログを閉じます"
                 )
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -1925,7 +2031,8 @@ class YDownloader:
             actions=[
                 ft.TextButton(
                     "閉じる",
-                    on_click=lambda e: close_dlg(e, err_happen_dlg, page)
+                    on_click=lambda e: close_dlg(e, err_happen_dlg, page),
+                    tooltip="ダイアログを閉じます"
                 )
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -1937,7 +2044,8 @@ class YDownloader:
             actions=[
                 ft.TextButton(
                     "閉じる",
-                    on_click=lambda e: close_dlg(e, delete_err_dlg, page)
+                    on_click=lambda e: close_dlg(e, delete_err_dlg, page),
+                    tooltip="ダイアログを閉じます"
                 )
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -1949,7 +2057,8 @@ class YDownloader:
             actions=[
                 ft.TextButton(
                     "閉じる",
-                    on_click=lambda e: close_dlg(e, save_err_dlg, page)
+                    on_click=lambda e: close_dlg(e, save_err_dlg, page),
+                    tooltip="ダイアログを閉じます"
                 )
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -1961,7 +2070,34 @@ class YDownloader:
             actions=[
                 ft.TextButton(
                     "閉じる",
-                    on_click=lambda e: close_dlg(e, copy_err_dlg, page)
+                    on_click=lambda e: close_dlg(e, copy_err_dlg, page),
+                    tooltip="ダイアログを閉じます"
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        dl_err_dlg = ft.AlertDialog(
+            title=ft.Text("エラー"),
+            modal=True,
+            content=ft.Text(f"ダウンロードフォルダーの選択に失敗しました。"),
+            actions=[
+                ft.TextButton(
+                    "閉じる",
+                    on_click=lambda e: close_dlg(e, dl_err_dlg, page),
+                    tooltip="ダイアログを閉じます"
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        settings_save_dlg = ft.AlertDialog(
+            title=ft.Text("忠告"),
+            modal=True,
+            content=ft.Text(f"一部設定はアプリの次回起動以降反映されます。"),
+            actions=[
+                ft.TextButton(
+                    "閉じる",
+                    on_click=lambda e: close_dlg(e, settings_save_dlg, page),
+                    tooltip="ダイアログを閉じます"
                 )
             ],
             actions_alignment=ft.MainAxisAlignment.END,
