@@ -1674,6 +1674,7 @@ class YDownloader:
             thumbnail_img.width = updated_width
             thumbnail_img.height = updated_height
             page.update()
+            self.logger.info(f"ウィンドウサイズが変更されました。 width: {updated_width}, height: {updated_height}")
     
     def download_video_by_key(self, e, key, page):
         """
@@ -1681,9 +1682,6 @@ class YDownloader:
         """
         try:
             # ページ上から最新のCardを取得(保存していた参照ではなく、現在のコントロールツリーから)
-            # print(self.card_uids) # デバッグ用
-            # target_card = page.get_control(self.card_uids[key]) # この方法でもできる
-            # print(target_card) # デバッグ用
             # dictであるcardsから参照
             target_card = self.cards[key]
             target_column = target_card.content.content
@@ -1698,17 +1696,21 @@ class YDownloader:
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if not all(k in data for k in ("title", "uploader", "url")):
-                raise AttributeError("JSONファイルにtitleまたはuploaderまたはurlのキーがありません。")
+                self.logger.error(
+                    "JSONファイルにtitleまたはuploaderまたはurlのキーがありません。",
+                    exc_info=True
+                )
+                sys.exit(1) # プログラムの終了
             data["title"] = sanitize_filename(target_title.value)
-            # print(data["title"]) # デバッグ用
+            self.logger.debug(data["title"])
             data["uploader"] = target_uploader.value
-            # print(data["uploader"]) # デバッグ用
+            self.logger.debug(data["uploader"])
             data["content_type"] = target_content_type.value
-            print(data["content_type"]) # デバッグ用
+            self.logger.debug(data["content_type"])
             # 更新したデータをJSONファイルに書き戻す
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            print(f"{key}.jsonを更新しました")
+            self.logger.info(f"{key}.jsonを更新しました")
             # ダウンロードボタンとデリートボタンを押せなくする
             download_button = target_info.controls[2].controls[0]
             delete_button = target_info.controls[2].controls[1]
@@ -1723,7 +1725,11 @@ class YDownloader:
             # ダウンロード処理開始
             self.downloader._check_content_type(key=key, page=page)
         except Exception as ex:
-            raise ex
+            self.logger.error(
+                ex,
+                exc_info=True
+            )
+            sys.exit(1) # プログラムの終了
     
     def remove_card(self, e, key, page, url):
         try:
@@ -1731,13 +1737,21 @@ class YDownloader:
                 page.controls.remove(self.cards[key])
                 page.update()
                 del self.cards[key]
-                print(f"self.cardsからkey: {key} を削除しました。")
+                self.logger.info(f"self.cardsからkey: {key} を削除しました。")
                 self.added_urls.remove(url)
-                print(f"self.added_urlsからurl: {url} を削除しました。")
+                self.logger.info(f"self.added_urlsからurl: {url} を削除しました。")
             else:
-                raise AttributeError("keyの値が不正です。")
+                self.logger.error(
+                    "keyの値が不正です",
+                    exc_info=True
+                )
+                sys.exit(1) # プログラムの終了
         except Exception as ex:
-            raise ex
+            self.logger.error(
+                ex,
+                exc_info=True
+            )
+            sys.exit(1) # プログラムの終了
     
     def import_text_files(self, e, tf, page):
         """読み込むURLが記入されたテキストファイルを読み込んで、検索欄に追加"""
@@ -1749,7 +1763,10 @@ class YDownloader:
                 filetypes=[("Text files", "*.txt")],  # テキストファイルのみ選択可能
             )
             if not file_paths:
-                print("ファイルが選択されませんでした。")
+                self.logger.warning(
+                    "ファイルが選択されませんでした。",
+                    exc_info=True
+                )
                 return
             all_urls = [] # テキストファイルから読み取った全てのURLを格納するリスト
             for file_path in file_paths:
@@ -1773,7 +1790,11 @@ class YDownloader:
                     tf.value = "\n".join(valid_urls)
                 page.update()
         except Exception as ex:
-            raise ex
+            self.logger.error(
+                ex,
+                exc_info=True
+            )
+            sys.exit(1) # プログラムの終了
     
     def all_download(self, e, page):
         try:
@@ -1783,16 +1804,37 @@ class YDownloader:
             page.update()
             with ThreadPoolExecutor() as executor: # 同時並行的に処理
                 futures = [executor.submit(self.download_video_by_key, None, key, page) for key in self.cards.keys()]
-                # print("全てのカードをそれぞれの形式でダウンロードする") # デバッグ用
+                self.logger.debug("全てのカードをそれぞれの形式でダウンロードする")
                 # エラーをキャッチするために結果を取得
                 for future in futures:
                     future.result()
         except Exception as ex:
-            raise ex
+            self.logger.error(
+                ex,
+                exc_info=True
+            )
+            error_occurred = True  # エラー発生フラグ
+        else:
+            error_occurred = False
         finally:
             # 全ての処理が完了した後に発火
             self.all_download_icon.disabled = False
             self.all_delete_icon.disabled = False
+            page.update()
+        if error_occurred:
+            err_dlg = ft.AlertDialog(
+                title=ft.Text("エラー"),
+                modal=True,
+                content=ft.Text("ダウンロードの途中でエラーが発生しました。"),
+                actions=[
+                    ft.TextButton(
+                        "閉じる",
+                        on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
+                    )
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.views[0].controls.append(err_dlg)
             page.update()
     
     def all_remove(self, e, page):
@@ -1802,11 +1844,28 @@ class YDownloader:
                 page.controls.remove(value)
                 del value
                 page.update()
-                print(f"self.cardsからkey: {key} を削除しました。")
+                self.logger.info(f"self.cardsからkey: {key} を削除しました。")
             self.added_urls = []
-            print("self.added_urlsを初期化しました")
+            self.logger.info("self.added_urlsを初期化しました")
         except Exception as ex:
-            raise ex
+            self.logger.error(
+                ex,
+                exc_info=True
+            )
+            err_dlg = ft.AlertDialog(
+                title=ft.Text("エラー"),
+                modal=True,
+                content=ft.Text("カード削除の途中でエラーが発生しました。"),
+                actions=[
+                    ft.TextButton(
+                        "閉じる",
+                        on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
+                    )
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.views[0].controls.append(err_dlg)
+            page.update()
     
     def go_to_setting_page(self, e, page: ft.Page):
         # 設定ページをviewsに追加して遷移
@@ -1964,7 +2023,11 @@ class YDownloader:
         # ft.ThemeMode.LIGHTまたはft.ThemeMode.DARKが定義される
         page.theme_mode = getattr(ft.ThemeMode, settings.page_theme, None)
         if not page.theme_mode:
-            raise AttributeError("page.theme_modeの値が不正です。")
+            self.logger.error(
+                "page.theme_modeの値が不正です。",
+                exc_info=True
+            )
+            sys.exit(1) # プログラムの終了
         
         # メインページのレイアウトをViewにまとめる
         main_view = ft.View(
@@ -2014,14 +2077,24 @@ if __name__ == "__main__":
     # externalディレクトリのパスを取得
     EXTERNAL_PATH = get_external_path(app_name="YDownloader")
     if not os.path.exists(EXTERNAL_PATH):
-        raise FileExistsError("externalフォルダーが存在しません。インストールし直してください。")
+        logger = logging.getLogger()
+        logger.error(
+            "externalフォルダーが存在しません。インストールし直してください。",
+            exc_info=True
+        )
+        sys.exit(1) # プログラムの終了
     # externalディレクトリを sys.path の先頭に追加することで、yt_dlp の import が可能に
     sys.path.insert(0, EXTERNAL_PATH)
     # ここで external/yt_dlp 内のモジュールが import 可能になる
     try:
         from yt_dlp import YoutubeDL
     except Exception as ex:
-        raise ImportError(f"yt-dlp の import に失敗しました。externalディレクトリ({EXTERNAL_PATH})内に正しく配置されているか確認してください。") from ex
+        logger = logging.getLogger()
+        logger.error(
+            f"yt-dlp の import に失敗しました。externalディレクトリ({EXTERNAL_PATH})内に正しく配置されているか確認してください。",
+            exc_info=True
+        )
+        sys.exit(1) # プログラムの終了
     setup_logging()
     settings = DefaultSettingsLoader()
     downloader = Download(settings)
