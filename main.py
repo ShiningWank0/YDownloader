@@ -182,13 +182,13 @@ def setup_logging(app_name="YDownloader", loglevel=logging.INFO):
     # loggerにhandlerをセット
     logger.addHandler(rotating_handler)
     
-    # 開発中(ソースコードのまま)では、コンソールにも出力する
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(loglevel) # 必要に応じてレベルをDEBUGにすることでより詳細な情報を得られる
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    # # 開発中(ソースコードのまま)では、コンソールにも出力する
+    # console_handler = logging.StreamHandler(sys.stdout)
+    # console_handler.setLevel(loglevel) # 必要に応じてレベルをDEBUGにすることでより詳細な情報を得られる
+    # console_handler.setFormatter(formatter)
+    # logger.addHandler(console_handler)
     
-    logger.info(f"log_dir: {log_dir}")
+    # logger.info(f"log_dir: {log_dir}")
 
 def sanitize_filename(filename: str, replacement: str = "_") -> str:
     """
