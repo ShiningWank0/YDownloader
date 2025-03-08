@@ -382,19 +382,6 @@ class Download:
         self.temp_dir = settings.temp_dir
         self.cards = {}
     
-    # 基本的にいらない(後の確認用に一応コメントアウトにとどめる)
-    # def _progress_hook(self, status):
-    #     """
-    #     yt-dlpの進捗状況を表示するためのフック関数
-    #     """
-    #     if self.show_progress:
-    #         if status.get('status') == 'downloading':
-    #             downloaded = status.get('downloaded_bytes', 0)
-    #             total = status.get('total_bytes') or status.get('total_bytes_estimate') or 0
-    #             print(f"Downloading... {downloaded} / {total} bytes", end='\r')
-    #         elif status.get('status') == 'finished':
-    #             print("\nDownload finished.")
-    
     def _check_network(self, host="8.8.8.8", port=53, timeout=3):
         """
         指定したホストとポートへの接続が可能かどうかチェックして、端末のネットワーク接続が正常かどうか検査する
