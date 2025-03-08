@@ -23,10 +23,6 @@ from appdirs import user_data_dir, user_config_dir
 import tkinter as tk
 from tkinter import filedialog
 from concurrent.futures import ThreadPoolExecutor
-# TraceBackを使用することで、エラー原因の詳細が表示されるようにできる(全ての関数に実装していく予定)
-# 実行ファイル化した後を想定して、エラーログなどをファイルに出力するようにする
-# 後やること: loggerを使用した出力の保存に切り替え・エラーで処理が止まらないように・externalフォルダー探索関数を用意・デバッグ用などの余計なprint関数をコメントアウトする
-# 後は読み込み時のプログレスバーと一括ダウンロードと一括カード削除ボタン
 
 """
 Nuitkaを使用したFletデスクトップアプリのパック
@@ -152,6 +148,10 @@ def get_configs_path(app_name="YDownloader"):
         configs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs")
         logger.info(f"開発環境で実行されています。configs: {configs_dir}")
     return configs_dir
+
+def get_ffmpeg_dir():
+    """外部フォルダーとなったffmpegを取得できるようにする"""
+    return os.path.join(get_external_path(), "ffmpeg")
 
 def cleanup_temp_dir(temp_dir):
     """プログラム終了時に一時ディレクトリを削除する関数"""
@@ -372,6 +372,7 @@ class Download:
     def __init__(self, settings):
         self.logger = logging.getLogger()
         self.logger.debug("Downloadの__init__開始")
+        self.ffmpeg_dir = get_ffmpeg_dir()
         self.save_dir = os.path.join(settings.download_dir, "YDownloader")
         os.makedirs(self.save_dir, exist_ok=True)
         self.retries = settings.retry_chance
@@ -681,6 +682,7 @@ class Download:
             "format": quality_format,
             "outtmpl": outtmpl,
             "merge_output_format": movie_format,
+            "ffmpeg_location": self.ffmpeg_dir,
             "postprocessors": [
                 {
                     "key": "FFmpegVideoRemuxer",
@@ -772,6 +774,7 @@ class Download:
         ydl_opts = {
             "format": quality_format,
             "outtmpl": outtmpl,
+            "ffmpeg_location": self.ffmpeg_dir,
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": music_format,
@@ -819,6 +822,7 @@ class YDownloader:
         # 設定やグローバル変数相当の初期化
         self.logger = logging.getLogger()
         self.logger.debug("YDownloaderの__init__開始")
+        self.ffmpeg_dir = get_ffmpeg_dir()
         self.retries = settings.retry_chance
         self.temp_dir = settings.temp_dir
         self.pre_url_list = []
@@ -849,6 +853,7 @@ class YDownloader:
         ydl_opts = {
             "skip_download": True, # 動画本体はダウンロードしない
             "quiet": True, # 進捗状況を表示しない
+            "ffmpeg_location": self.ffmpeg_dir,
             # "verbose": True,  # 詳細なデバッグ情報を表示
         }
         attempt = 0
