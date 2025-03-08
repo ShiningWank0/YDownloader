@@ -192,7 +192,7 @@ def setup_logging(app_name="YDownloader"):
     
     # 開発中(ソースコードのまま)では、コンソールにも出力する
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO) # 必要に応じてレベルをDEBUGにすることでより詳細な情報を得られる
+    console_handler.setLevel(logging.DEBUG) # 必要に応じてレベルをDEBUGにすることでより詳細な情報を得られる
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
     
@@ -227,8 +227,13 @@ def sanitize_filename(filename: str, replacement: str = "_") -> str:
     # 空のファイル名を回避
     return filename if filename else "default_filename"
 
+# エラーダイアログ用　エラーダイアログは最初にページに対して追加する事
 def close_dlg(e, err_dlg, page):
-    err_dlg.open = False
+    page.close(err_dlg)
+    page.update()
+
+def open_dlg(err_dlg, page):
+    page.open(err_dlg)
     page.update()
 
 class DefaultSettingsLoader:
@@ -255,14 +260,14 @@ class DefaultSettingsLoader:
         # このスクリプトが存在するディレクトリの絶対パスを取得
         self.SCRIPT_DIR = get_script_dir()
         # config.jsonへのパスを作成
-        self.CONFIG_PATH = os.path.join(get_configs_path, "config.json")
+        self.CONFIG_PATH = os.path.join(get_configs_path(), "config.json")
         self.logger.info(f"config.json: {self.CONFIG_PATH}")
         # 一時ディレクトリを作成
         # atexitを使用してプログラム終了時に削除されるようにする
         self.TEMP_DIR = tempfile.mkdtemp()
         self.logger.info(f"一時ディレクトリが作成されました: {self.TEMP_DIR}")
         # プログラム終了時にcleanup_temp_dir()を実行するよう登録
-        atexit.register(cleanup_temp_dir(self.TEMP_DIR))
+        atexit.register(lambda: cleanup_temp_dir(self.TEMP_DIR))
         self.logger.info("atexitを使用して一時ディレクトリ削除をプログラム終了時にreigisterしました")
         
         self.download_folder = get_download_folder()
@@ -441,20 +446,7 @@ class Download:
                     "content_typeの値が不正です。",
                     exc_info=True
                 )
-                err_dlg = ft.AlertDialog(
-                    title=ft.Text("エラー"),
-                    modal=True,
-                    content=ft.Text("ダウンロードタイプの値が入手できませんでした。"),
-                    actions=[
-                        ft.TextButton(
-                            "閉じる", 
-                            on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
-                        )
-                    ],
-                    actions_alignment=ft.MainAxisAlignment.END,
-                )
-                page.views[0].controls.append(err_dlg)
-                page.update()
+                open_dlg(content_type_err_dlg, page)
         else:
             # print("これは正常にメタデータが記録されたプレイリスト") # デバッグ用
             try:
@@ -490,40 +482,14 @@ class Download:
                                 "Movie download failed for NetWork Error",
                                 exc_info=True
                             )
-                            err_dlg = ft.AlertDialog(
-                                title=ft.Text("エラー"),
-                                modal=True,
-                                content=ft.Text("ネットワーク接続を確認してください。"),
-                                actions=[
-                                    ft.TextButton(
-                                        "閉じる", 
-                                        on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
-                                    )
-                                ],
-                                actions_alignment=ft.MainAxisAlignment.END,
-                            )
-                            page.views[0].controls.append(err_dlg)
-                            page.update()
+                            open_dlg(network_err_dlg, page)
                             break # ループを中断
                         elif not result:
                             self.logger.error(
                                 "Movie download failed. Stopping the process.",
                                 exc_info=True
                             )
-                            err_dlg = ft.AlertDialog(
-                                title=ft.Text("エラー"),
-                                modal=True,
-                                content=ft.Text("プレイリストダウンロード中にエラーが発生しました。"),
-                                actions=[
-                                    ft.TextButton(
-                                        "閉じる", 
-                                        on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
-                                    )
-                                ],
-                                actions_alignment=ft.MainAxisAlignment.END,
-                            )
-                            page.views[0].controls.append(err_dlg)
-                            page.update()
+                            open_dlg(playlist_error_dlg, page)
                             break # ループを中断
                     self.logger.info(f"Download process complete. Executing post-download code. url: {url}")
                     self._fire_after_download(key=key, page=page)
@@ -551,40 +517,14 @@ class Download:
                                 "Music download failed for NetWork Error",
                                 exc_info=True
                             )
-                            err_dlg = ft.AlertDialog(
-                                title=ft.Text("エラー"),
-                                modal=True,
-                                content=ft.Text("ネットワーク接続を確認してください。"),
-                                actions=[
-                                    ft.TextButton(
-                                        "閉じる", 
-                                        on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
-                                    )
-                                ],
-                                actions_alignment=ft.MainAxisAlignment.END,
-                            )
-                            page.views[0].controls.append(err_dlg)
-                            page.update()
+                            open_dlg(network_err_dlg, page)
                             break # ループを中断
                         elif not result:
                             self.logger.error(
                                 "Music download failed. Stopping the process.",
                                 exc_info=True
                             )
-                            err_dlg = ft.AlertDialog(
-                                title=ft.Text("エラー"),
-                                modal=True,
-                                content=ft.Text("プレイリストダウンロード中にエラーが発生しました。"),
-                                actions=[
-                                    ft.TextButton(
-                                        "閉じる", 
-                                        on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
-                                    )
-                                ],
-                                actions_alignment=ft.MainAxisAlignment.END,
-                            )
-                            page.views[0].controls.append(err_dlg)
-                            page.update()
+                            open_dlg(playlist_error_dlg, page)
                             break # ループを中断
                     self.logger.info(f"Download process complete. Executing post-download code. url: {url}")
                     self._fire_after_download(key=key, page=page)
@@ -594,20 +534,7 @@ class Download:
                         "content_typeの値が不正です。",
                         exc_info=True
                     )
-                    err_dlg = ft.AlertDialog(
-                        title=ft.Text("エラー"),
-                        modal=True,
-                        content=ft.Text("ダウンロードタイプの値が入手できませんでした。"),
-                        actions=[
-                            ft.TextButton(
-                                "閉じる", 
-                                on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
-                            )
-                        ],
-                        actions_alignment=ft.MainAxisAlignment.END,
-                    )
-                    page.views[0].controls.append(err_dlg)
-                    page.update()
+                    open_dlg(content_type_err_dlg, page)
             except Exception as ex:
                 self.logger.error(
                     ex,
@@ -783,20 +710,7 @@ class Download:
                             "A network error occurred. Please check your connection and try again.",
                             exc_info=True
                         )
-                        err_dlg = ft.AlertDialog(
-                            title=ft.Text("エラー"),
-                            modal=True,
-                            content=ft.Text("ネットワーク接続状況を確認してください"),
-                            actions=[
-                                ft.TextButton(
-                                    "閉じる", 
-                                    on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
-                                )
-                            ],
-                            actions_alignment=ft.MainAxisAlignment.END,
-                        )
-                        page.views[0].controls.append(err_dlg)
-                        page.update()
+                        open_dlg(network_err_dlg, page)
                         self._fire_after_download(key=key, page=page)
                     return "NetWorkError"
                 attempt += 1
@@ -807,20 +721,7 @@ class Download:
                             "Max retry limit reached. Aborting movie download.",
                             exc_info=True
                         )
-                        err_dlg = ft.AlertDialog(
-                            title=ft.Text("エラー"),
-                            modal=True,
-                            content=ft.Text(f"{self.retries}回ダウンロードに失敗しました。"),
-                            actions=[
-                                ft.TextButton(
-                                    "閉じる", 
-                                    on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page),
-                                ),
-                            ],
-                            actions_alignment=ft.MainAxisAlignment.END,
-                        )
-                        page.views[0].controls.append(err_dlg)
-                        page.update()
+                        open_dlg(retry_error_dlg, page)
                         self._fire_after_download(key=key, page=page)
                     return False
     
@@ -898,20 +799,7 @@ class Download:
                             "A network error occurred. Please check your connection and try again.",
                             exc_info=True
                         )
-                        err_dlg = ft.AlertDialog(
-                            title=ft.Text("エラー"),
-                            modal=True,
-                            content=ft.Text("ネットワーク接続状況を確認してください"),
-                            actions=[
-                                ft.TextButton(
-                                    "閉じる", 
-                                    on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page),
-                                ),
-                            ],
-                            actions_alignment=ft.MainAxisAlignment.END,
-                        )
-                        page.views[0].controls.append(err_dlg)
-                        page.update()
+                        open_dlg(network_err_dlg, page)
                         self._fire_after_download(key=key, page=page)
                     return "NetWorkError"
                 attempt += 1
@@ -922,20 +810,7 @@ class Download:
                             "Max retry limit reached. Aborting music download.",
                             exc_info=True
                         )
-                        err_dlg = ft.AlertDialog(
-                            title=ft.Text("エラー"),
-                            modal=True,
-                            content=ft.Text(f"{self.retries}回ダウンロードに失敗しました。"),
-                            actions=[
-                                ft.TextButton(
-                                    "閉じる", 
-                                    on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page),
-                                ),
-                            ],
-                            actions_alignment=ft.MainAxisAlignment.END,
-                        )
-                        page.views[0].controls.append(err_dlg)
-                        page.update()
+                        open_dlg(retry_error_dlg, page)
                         self._fire_after_download(key=key, page=page)
                     return False
 
@@ -1122,7 +997,11 @@ class YDownloader:
         サムネイル画像サイズ(又は、画像がない場合はプレースホルダー(灰色画像を生成して保存))を返す。
         """
         if not key:
-            raise AttributeError(f"keyの値が不明です。")
+            self.logger.error(
+                "keyの値が不明です。",
+                exc_info=True
+            )
+            sys.exit(1) # プログラムの終了
         frame_width = int(page.window.width / 4)
         frame_height = int(frame_width * 9 / 16)
         if thumb_width == 0 or thumb_height == 0:
@@ -1178,36 +1057,11 @@ class YDownloader:
             try:
                 self.pre_current_urls += 1
                 json_path = self.preview_video_info(url, page)
+                self.logger.debug(json_path)
                 if json_path == "NetWorkError":
-                    err_dlg = ft.AlertDialog(
-                        title=ft.Text("エラー"),
-                        modal=True,
-                        content=ft.Text("ネットワーク接続を確認してください。"),
-                        actions=[
-                            ft.TextButton(
-                                "閉じる", 
-                                on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
-                            )
-                        ],
-                        actions_alignment=ft.MainAxisAlignment.END,
-                    )
-                    page.views[0].controls.append(err_dlg)
-                    page.update()
+                    open_dlg(network_err_dlg, page)
                 elif not json_path:
-                    err_dlg = ft.AlertDialog(
-                        title=ft.Text("エラー"),
-                        modal=True,
-                        content=ft.Text("動画情報の取得に失敗しました。"),
-                        actions=[
-                            ft.TextButton(
-                                "閉じる", 
-                                on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
-                            )
-                        ],
-                        actions_alignment=ft.MainAxisAlignment.END,
-                    )
-                    page.views[0].controls.append(err_dlg)
-                    page.update()
+                    open_dlg(link_err_dlg, page)
                 else:
                     self.logger.debug(f"Generated JSON path: {json_path}")
                     with open(json_path, "r", encoding="utf-8") as f:
@@ -1215,11 +1069,19 @@ class YDownloader:
                     self.logger.debug(f"data: {data}")
                     is_playlist = data.get("is_playlist", "ERROR")
                     if is_playlist == "ERROR":
-                        raise AttributeError("is_playlistの値が不正です。")
+                        self.logger.error(
+                            "is_playlistの値が不正です。",
+                            exc_info=True
+                        )
+                        sys.exit(1) # プログラムの終了
                     # 各Cardに追加されるkey
                     key = data.get("id", "Unknown ID")
                     if key == "Unknown ID":
-                        raise ValueError("IDが不明です。")
+                        self.logger.error(
+                            "IDが不明です。",
+                            exc_info=True
+                        )
+                        sys.exit(1) # プログラムの終了
                     is_entries = data.get("is_entries", False)
                     if is_entries:
                         print("これは正常にメタデータを入手できたプレイリスト") # デバッグ用
@@ -1613,20 +1475,7 @@ class YDownloader:
                     f"Error adding video card: {ex}",
                     exc_info=True
                 )
-                err_dlg = ft.AlertDialog(
-                    title=ft.Text("エラー"),
-                    modal=True,
-                    content=ft.Text(f"エラーが発生しました。\n {ex}"),
-                    actions=[
-                        ft.TextButton(
-                            "閉じる", 
-                            on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
-                        )
-                    ],
-                    actions_alignment=ft.MainAxisAlignment.END,
-                )
-                page.views[0].controls.append(err_dlg)
-                page.update()
+                open_dlg(err_dlg, page)
             time.sleep(0.5) # 連続処理の負荷を軽減
     
     def handle_url_submit(self, e, tf, page):
@@ -1729,7 +1578,7 @@ class YDownloader:
                 ex,
                 exc_info=True
             )
-            sys.exit(1) # プログラムの終了
+            open_dlg(err_happen_dlg, page)
     
     def remove_card(self, e, key, page, url):
         try:
@@ -1751,7 +1600,7 @@ class YDownloader:
                 ex,
                 exc_info=True
             )
-            sys.exit(1) # プログラムの終了
+            open_dlg(delete_err_dlg, page)
     
     def import_text_files(self, e, tf, page):
         """読み込むURLが記入されたテキストファイルを読み込んで、検索欄に追加"""
@@ -1822,20 +1671,7 @@ class YDownloader:
             self.all_delete_icon.disabled = False
             page.update()
         if error_occurred:
-            err_dlg = ft.AlertDialog(
-                title=ft.Text("エラー"),
-                modal=True,
-                content=ft.Text("ダウンロードの途中でエラーが発生しました。"),
-                actions=[
-                    ft.TextButton(
-                        "閉じる",
-                        on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
-                    )
-                ],
-                actions_alignment=ft.MainAxisAlignment.END,
-            )
-            page.views[0].controls.append(err_dlg)
-            page.update()
+            open_dlg(err_happen_dlg, page)
     
     def all_remove(self, e, page):
         try:
@@ -1852,20 +1688,7 @@ class YDownloader:
                 ex,
                 exc_info=True
             )
-            err_dlg = ft.AlertDialog(
-                title=ft.Text("エラー"),
-                modal=True,
-                content=ft.Text("カード削除の途中でエラーが発生しました。"),
-                actions=[
-                    ft.TextButton(
-                        "閉じる",
-                        on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
-                    )
-                ],
-                actions_alignment=ft.MainAxisAlignment.END,
-            )
-            page.views[0].controls.append(err_dlg)
-            page.update()
+            open_dlg(delete_err_dlg, page)
     
     def go_to_setting_page(self, e, page: ft.Page):
         # 設定ページをviewsに追加して遷移
@@ -1918,6 +1741,105 @@ class YDownloader:
         Fletのページを構築するメインメソッド
         """
         page.title = "YDownloader"
+        
+        # global宣言が必要
+        global content_type_err_dlg, network_err_dlg, playlist_error_dlg, retry_error_dlg, link_err_dlg, err_dlg, err_happen_dlg, delete_err_dlg
+        content_type_err_dlg = ft.AlertDialog(
+            title=ft.Text("エラー"),
+            modal=True,
+            content=ft.Text("ダウンロードタイプの値が入手できませんでした。"),
+            actions=[
+                ft.TextButton(
+                    "閉じる",
+                    on_click=lambda e: close_dlg(e, content_type_err_dlg, page)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        network_err_dlg = ft.AlertDialog(
+            title=ft.Text("エラー"),
+            modal=True,
+            content=ft.Text("ネットワーク接続を確認してください。"),
+            actions=[
+                ft.TextButton(
+                    "閉じる", 
+                    on_click=lambda e: close_dlg(e, network_err_dlg, page)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        playlist_error_dlg = ft.AlertDialog(
+            title=ft.Text("エラー"),
+            modal=True,
+            content=ft.Text("プレイリストダウンロード中にエラーが発生しました。"),
+            actions=[
+                ft.TextButton(
+                    "閉じる", 
+                    on_click=lambda e: close_dlg(e, playlist_error_dlg, page)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        retry_error_dlg = ft.AlertDialog(
+            title=ft.Text("エラー"),
+            modal=True,
+            content=ft.Text(f"{self.retries}回ダウンロードに失敗しました。"),
+            actions=[
+                ft.TextButton(
+                    "閉じる", 
+                    on_click=lambda e: close_dlg(e, retry_error_dlg, page),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        link_err_dlg = ft.AlertDialog(
+            title=ft.Text("エラー"),
+            modal=True,
+            content=ft.Text("入力されたリンクが正しくありません。"),
+            actions=[
+                ft.TextButton(
+                    "閉じる", 
+                    on_click=lambda e: close_dlg(e, link_err_dlg, page)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        err_dlg = ft.AlertDialog(
+            title=ft.Text("エラー"),
+            modal=True,
+            content=ft.Text(f"エラーが発生しました。"),
+            actions=[
+                ft.TextButton(
+                    "閉じる", 
+                    on_click=lambda e: close_dlg(e, err_dlg, page)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        err_happen_dlg = ft.AlertDialog(
+            title=ft.Text("エラー"),
+            modal=True,
+            content=ft.Text("ダウンロードの途中でエラーが発生しました。"),
+            actions=[
+                ft.TextButton(
+                    "閉じる",
+                    on_click=lambda e: close_dlg(e, err_happen_dlg, page)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        delete_err_dlg = ft.AlertDialog(
+            title=ft.Text("エラー"),
+            modal=True,
+            content=ft.Text("カード削除の途中でエラーが発生しました。"),
+            actions=[
+                ft.TextButton(
+                    "閉じる",
+                    on_click=lambda e: close_dlg(e, delete_err_dlg, page)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
         
         # ウィンドウのリサイズイベントを監視する(リサイズが完了したタイミングで実行されるようにする)
         page.on_resized = lambda e: self.handle_window_resize(e, page)
