@@ -27,17 +27,9 @@ from concurrent.futures import ThreadPoolExecutor
 """
 Nuitkaを使用したFletデスクトップアプリのパック
 https://github.com/flet-dev/flet/discussions/1314
-Fletについて
-https://qiita.com/NasuPanda/items/48849d7f925784d6b6a0
 Pythonのexe化について
 https://zenn.dev/kitagawadisk/articles/aead46336ce3b7
-Flet構築参考サイト
-https://zenn.dev/gogotealove/articles/8a90a2a0519c2d
-https://zenn.dev/pineconcert/articles/408aee32d1868b
-https://flet-controls-gallery.fly.dev/layout
-https://gallery.flet.dev/icons-browser/
-https://flet.dev/docs/controls/progressbar/
-yt-dlpのバージョンアップにexe化後にパッチを当てるなどして対応する方法について知りたい
+yt-dlpのバージョンアップにexe化後にパッチを当てるなどして対応する予定
 """
 
 def get_download_folder():
@@ -151,14 +143,14 @@ def get_configs_path(app_name="YDownloader"):
 
 def get_ffmpeg_dir():
     """外部フォルダーとなったffmpegを取得できるようにする"""
-    return os.path.join(get_external_path(), "ffmpeg")
+    return os.path.join(get_external_path(), "ffmpeg", "bin")
 
 def cleanup_temp_dir(temp_dir):
     """プログラム終了時に一時ディレクトリを削除する関数"""
     logging.info(f"一時ディレクトリを削除中: {temp_dir}")
     shutil.rmtree(temp_dir, ignore_errors=True)
 
-def setup_logging(app_name="YDownloader"):
+def setup_logging(app_name="YDownloader", loglevel=logging.INFO):
     """ログファイルを使用したログの記録のセットアップ関数(exc_info=Trueで詳細なログを記録)"""
     # PyInstaller, cx_Freeze, Nuitkaによる実行ファイル化後に供えた処理
     if getattr(sys, "frozen", False) or "__compiled__" in globals():
@@ -174,7 +166,7 @@ def setup_logging(app_name="YDownloader"):
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, "app.log")
     logger = logging.getLogger() # globalを使用しなくてもglobal変数が使用される
-    logger.setLevel(logging.INFO)
+    logger.setLevel(loglevel)
     # ログファイルにエラー情報や一般的なログを記録する
     # ここでは、平均100バイト/行として、1000行程度で約100KBになるよう設定(調整が必要)
     # 100KBに達すると、バックアップファイルとして一つだけ残され、新しいログファイルが作成される
@@ -192,7 +184,7 @@ def setup_logging(app_name="YDownloader"):
     
     # 開発中(ソースコードのまま)では、コンソールにも出力する
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG) # 必要に応じてレベルをDEBUGにすることでより詳細な情報を得られる
+    console_handler.setLevel(loglevel) # 必要に応じてレベルをDEBUGにすることでより詳細な情報を得られる
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
     
@@ -373,6 +365,7 @@ class Download:
         self.logger = logging.getLogger()
         self.logger.debug("Downloadの__init__開始")
         self.ffmpeg_dir = get_ffmpeg_dir()
+        self.logger.debug(f"{self.ffmpeg_dir}がffmpeg_dirです。")
         self.save_dir = os.path.join(settings.download_dir, "YDownloader")
         os.makedirs(self.save_dir, exist_ok=True)
         self.retries = settings.retry_chance
@@ -810,6 +803,7 @@ class YDownloader:
         self.logger = logging.getLogger()
         self.logger.debug("YDownloaderの__init__開始")
         self.ffmpeg_dir = get_ffmpeg_dir()
+        self.logger.debug(f"{self.ffmpeg_dir}がffmpeg_dirです。")
         self.retries = settings.retry_chance
         self.temp_dir = settings.temp_dir
         self.pre_url_list = []
