@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import flet as ft
 import os
 import sys
@@ -13,11 +15,11 @@ from PIL import Image
 import threading
 import time
 import uuid
-import traceback
 import tempfile
+import atexit
 import logging
 from logging.handlers import RotatingFileHandler
-from appdirs import user_data_dir
+from appdirs import user_data_dir, user_config_dir
 import tkinter as tk
 from tkinter import filedialog
 from concurrent.futures import ThreadPoolExecutor
@@ -97,30 +99,82 @@ def get_external_path(app_name="YDownloader"):
     OSと実行環境に応じたexternalフォルダーのパスを返します。
     - 開発環境: 実行ファイルと同じディレクトリの下のexternalフォルダー
     - 実行ファイル化後（frozenの場合）：OSごとのユーザーデータディレクトリ内の app_name/external
-    - Windows: C:\Users\<ユーザー名>\AppData\Local\YDownloader
-    - macOS: /Users/<ユーザー名>/Library/Application Support/YDownloader
-    - Linux: /home/<ユーザー名>/.local/share/YDownloader
+    - Windows: "C:\\Users\\<ユーザー名>\\AppData\\Local\\YDownloader"
+    - macOS: "/Users/<ユーザー名>/Library/Application Support/YDownloader"
+    - Linux: "/home/<ユーザー名>/.local/share/YDownloader"
     """
+    logger = logging.getLogger()
     # PyInstaller, cx_Freeze, Nuitkaによる実行ファイル化後に供えた処理
     if getattr(sys, "frozen", False) or "__compiled__" in globals():
         candidate = os.path.join(os.path.dirname(os.path.abspath(__file__)), "external")
         if os.path.isdir(candidate): # standaloneモードを考慮
+            logger.info(f"standaloneモードで実行されています。external_dir: {candidate}")
             return candidate
         # 実行ファイル化後のユーザー環境
         # OS毎の適切なユーザーディレクトリ
         external_dir = os.path.join(user_data_dir(app_name), "external")
+        logger.info(f"実行ファイル化された状態で実行されています。external_dir: {external_dir}")
     else:
         # 開発環境：スクリプトディレクトリ直下の external フォルダーを使用
-        external_dir = os.path.join(get_script_dir(), "external")
+        external_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "external")
+        logger.info(f"開発環境で実行されています。external_dir: {external_dir}")
     return external_dir
 
-def setup_logging():
-    """ログファイルを使用したログの記録のセットアップ関数"""
-    log_dir = os.path.join(get_script_dir(), "logs")
+def get_configs_path(app_name="YDownloader"):
+    """
+    OSと実行環境に応じたconfigsフォルダーのパスを返します。
+    - 開発環境の場合:
+        スクリプトファイルと同じディレクトリ内の "configs" フォルダーを返します。
+        例: "C:\\Users\\<ユーザー名>\\Projects\\YDownloader\\configs"
+    
+    - 実行ファイル化後(frozenの場合)の場合:
+        1.  standaloneモードで、実行ファイルと同じディレクトリ内に "configs" フォルダーが存在する場合は、そのパスを返します。
+            例: "C:\\Program Files\\YDownloader\\configs"
+        2.  standaloneモードでない場合は、OSごとのユーザー設定ディレクトリ内のapp_name/configs を返します。
+            例:
+                - Windows: "C:\\Users\\<ユーザー名>\\AppData\\Local\\YDownloader\\configs"
+                - macOS: "/Users/<ユーザー名>/Library/Application Support/YDownloader/configs"
+                - Linux: "/home/<ユーザー名>/.config/YDownloader/configs"
+    """
+    logger = logging.getLogger()
+    # PyInstaller, cx_Freeze, Nuitkaによる実行ファイル化後に供えた処理
+    if getattr(sys, "frozen", False) or "__compiled__" in globals():
+        candidate = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs")
+        if os.path.isdir(candidate): # standaloneモードを考慮
+            logger.info(f"standaloneモードで実行されています。configs: {candidate}")
+            return candidate
+        # 実行ファイル化後のユーザー環境
+        # OS毎の適切なユーザーディレクトリ
+        configs_dir = os.path.join(user_config_dir(app_name), "configs")
+        logger.info(f"実行ファイル化された状態で実行されています。configs: {configs_dir}")
+    else:
+        # 開発環境：スクリプトディレクトリ直下の external フォルダーを使用
+        configs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs")
+        logger.info(f"開発環境で実行されています。configs: {configs_dir}")
+    return configs_dir
+
+def cleanup_temp_dir(temp_dir):
+    """プログラム終了時に一時ディレクトリを削除する関数"""
+    logging.info(f"一時ディレクトリを削除中: {temp_dir}")
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+def setup_logging(app_name="YDownloader"):
+    """ログファイルを使用したログの記録のセットアップ関数(exc_info=Trueで詳細なログを記録)"""
+    # PyInstaller, cx_Freeze, Nuitkaによる実行ファイル化後に供えた処理
+    if getattr(sys, "frozen", False) or "__compiled__" in globals():
+        candidate = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+        if os.path.isdir(candidate): # standaloneモードを考慮
+            log_dir = candidate
+        # 実行ファイル化後のユーザー環境
+        # OS毎の適切なユーザーディレクトリ
+        log_dir = os.path.join(user_data_dir(app_name), "logs")
+    else:
+        # 開発環境：スクリプトディレクトリ直下の external フォルダーを使用
+        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, "app.log")
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
+    logger = logging.getLogger() # globalを使用しなくてもglobal変数が使用される
+    logger.setLevel(logging.INFO)
     # ログファイルにエラー情報や一般的なログを記録する
     # ここでは、平均100バイト/行として、1000行程度で約100KBになるよう設定(調整が必要)
     # 100KBに達すると、バックアップファイルとして一つだけ残され、新しいログファイルが作成される
@@ -138,50 +192,44 @@ def setup_logging():
     
     # 開発中(ソースコードのまま)では、コンソールにも出力する
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG)
+    console_handler.setLevel(logging.INFO) # 必要に応じてレベルをDEBUGにすることでより詳細な情報を得られる
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
+    
+    logger.info(f"log_dir: {log_dir}")
 
-"""
-def main(page: ft.Page):
-    page.title = "My Flet Application"
+def sanitize_filename(filename: str, replacement: str = "_") -> str:
+    """
+    ファイル名に使用できない文字を削除または置き換える
+    Windows, Mac, Linux 全てに対応(ユーザーのOSに合わせて自動調整されるように)
+    :param filename:変換したいファイル名
+    :param replacement: 置き換え文字(デフォルトは"_")
+    :return: 安全なファイル名
+    """
+    # 禁止文字設定
+    if os.name == 'nt': # Windowsの場合
+        forbidden_chars = r'[\x00-\x1f\\/*?:"<>|]'
+    else: # Linux/macOSの場合
+        forbidden_chars = r'[\x00-\x1f/]'  # スラッシュはディレクトリ区切りのため禁止
+    # 禁止文字を指定の文字(デフォルト"_")に置換
+    filename = re.sub(forbidden_chars, replacement, filename)
+    # Windowsでは先頭・末尾の空白やピリオドを削除
+    if os.name == 'nt':
+        filename = filename.strip(" .")
+        # Windowsの予約デバイス名を回避
+        reserved_names = {
+            "CON", "PRN", "AUX", "NUL",
+            *(f"COM{i}" for i in range(1, 10)),
+            *(f"LPT{i}" for i in range(1, 10)),
+        }
+        if filename.upper() in reserved_names:
+            filename += "_safe"
+    # 空のファイル名を回避
+    return filename if filename else "default_filename"
 
-    # エラーを発生させる関数の例
-    def cause_error(e):
-        try:
-            # わざとゼロ除算エラーを発生させる
-            1 / 0
-        except Exception as err:
-            # 詳細なトレースバック情報をログに出力（exc_info=Trueで詳細情報が出る）
-            logging.error("A critical error occurred", exc_info=True)
-            # tracebackモジュールを使って文字列としても取得可能
-            tb_str = traceback.format_exc()
-            logging.debug("Traceback details:\n" + tb_str)
-            
-            # Fletでユーザー向けのエラーダイアログを表示
-            error_dialog = ft.AlertDialog(
-                title=ft.Text("Error"),
-                content=ft.Text("A critical error occurred. Please check the log file for details."),
-                actions=[
-                    ft.TextButton("OK", on_click=lambda e: close_dialog(page))
-                ]
-            )
-            page.dialog = error_dialog
-            page.dialog.open = True
-            page.update()
-
-    def close_dialog(page: ft.Page):
-        page.dialog.open = False
-        page.update()
-
-    btn = ft.ElevatedButton("Cause Error", on_click=cause_error)
-    page.add(btn)
-
-if __name__ == '__main__':
-    setup_logging()
-    ft.app(target=main)
-"""
-
+def close_dlg(e, err_dlg, page):
+    err_dlg.open = False
+    page.update()
 
 class DefaultSettingsLoader:
     """
@@ -201,16 +249,21 @@ class DefaultSettingsLoader:
     """
     
     def __init__(self):
-        # print("DefaultSettingsLoaderの__init__開始") # デバッグ用
+        self.logger = logging.getLogger()
+        self.logger.debug("DefaultSettingsLoaderの__init__開始")
         
         # このスクリプトが存在するディレクトリの絶対パスを取得
         self.SCRIPT_DIR = get_script_dir()
         # config.jsonへのパスを作成
-        self.CONFIG_PATH = os.path.join(self.SCRIPT_DIR, "configs", "config.json")
-        # 一時ファイル保存場所
-        self.TEMP_DIR = os.path.join(self.SCRIPT_DIR, ".temp")
-        # なければ作成
-        os.makedirs(self.TEMP_DIR, exist_ok=True)
+        self.CONFIG_PATH = os.path.join(get_configs_path, "config.json")
+        self.logger.info(f"config.json: {self.CONFIG_PATH}")
+        # 一時ディレクトリを作成
+        # atexitを使用してプログラム終了時に削除されるようにする
+        self.TEMP_DIR = tempfile.mkdtemp()
+        self.logger.info(f"一時ディレクトリが作成されました: {self.TEMP_DIR}")
+        # プログラム終了時にcleanup_temp_dir()を実行するよう登録
+        atexit.register(cleanup_temp_dir(self.TEMP_DIR))
+        self.logger.info("atexitを使用して一時ディレクトリ削除をプログラム終了時にreigisterしました")
         
         self.download_folder = get_download_folder()
         # 許可される設定キー定義(コード編集なしでの変更禁止)
@@ -227,23 +280,26 @@ class DefaultSettingsLoader:
             "page_theme"
         })
         
-        # デバッグ用
-        # print("ALLOWED_KEYS読み込み完了")
-        
+        self.logger.debug("ALLOWED_KEYS読み込み完了")
+        # logger.error("エラー発生", exc_info=True)  # ← `exc_info=True` で詳細なログを記録
         # ファイルが存在しない時はエラー
+        # 致命的なエラーのため、アプリ実行自体を中止
         if not os.path.exists(self.CONFIG_PATH):
-            raise FileNotFoundError(f"設定ファイル '{self.CONFIG_PATH}' が見つかりません。")
-        
+            self.logger.error(
+                f"設定ファイル{self.CONFIG_PATH}が見つかりません。致命的なエラーのため、実行を中止します。", 
+                exc_info=True
+            )
+            sys.exit(1) # プログラムの終了
         # JSONファイルを読み込み
         with open(self.CONFIG_PATH, "r", encoding="utf-8") as f:
             self._config_data = json.load(f)
-        
         # JSON内のキーが許可されるキーと完全一致しているかチェック
         if set(self._config_data.keys()) != self.ALLOWED_KEYS:
-            raise ValueError(
-                f"設定ファイル内のキーが正しくありません。"
-                f"許可されるキー: {self.ALLOWED_KEYS}, 現在のキー: {set(self._config_data.keys())}"
+            self.logger.error(
+                f"設定ファイル内のキーが正しくありません。許可されるキー: {self.ALLOWED_KEYS}, 現在のキー: {set(self._config_data.keys())}",
+                exc_info=True
             )
+            sys.exit(1) # プログラムの終了
         # ALLOWED_KEYSの各キーに対して非公開インスタンス変数を自動生成
         for key in self.ALLOWED_KEYS:
             if key == "download_dir" and not self._config_data[key]:
@@ -252,9 +308,7 @@ class DefaultSettingsLoader:
                 setattr(self, f"_{key}", self.TEMP_DIR)
             else:
                 setattr(self, f"_{key}", self._config_data[key])
-        
-        # デバッグ用
-        # print(self._config_data)
+        self.logger.debug(self._config_data)
     
     def update_setting(self, key, value):
         """
@@ -262,7 +316,11 @@ class DefaultSettingsLoader:
         変更後は、config.jsonファイルも更新する。
         """
         if key not in self.ALLOWED_KEYS:
-            raise ValueError(f"設定 '{key}' は存在しません。")
+            self.logger.error(
+                f"設定 '{key}' は存在しません。",
+                exc_info=True
+            )
+            sys.exit(1)
         
         try:
             # メモリ上の値を更新
@@ -278,23 +336,37 @@ class DefaultSettingsLoader:
                 original_value = getattr(self, f"_{key}")
                 setattr(self, f"_{key}", original_value)
                 self._config_data[key] = original_value
-            raise ValueError(f"設定の更新に失敗しました: {ex}")
+            self.logger.error(
+                f"設定の更新に失敗しました。key: {key}, Exception: {ex}",
+                exc_info=True
+            )
+            sys.exit(1) # プログラムの終了
     
     def __getattr__(self, key):
         """外部からのアクセス用(_を付けた非公開変数を参照)"""
         if key in self.ALLOWED_KEYS:
             return getattr(self, f"_{key}")
-        raise AttributeError(f"'{type(self).__name__}' オブジェクトに属性 '{key}' は存在しません。")
+        self.logger.error(
+            f"'{type(self).__name__}' オブジェクトに属性 '{key}' は存在しません。",
+            exc_info=True
+        )
+        sys.exit(1) # プログラムの終了
     
     def __setattr__(self, key, value):
         """外部からの直接変更を禁止"""
         # ここでgetattrを使用すると再帰エラーが発生する
         if "_config_data" in self.__dict__ and key in self.ALLOWED_KEYS:
-            raise AttributeError(f"'{key}' は直接変更できません。'update_setting()'を使用してください。")
+            self.logger.error(
+                f"'{key}' は直接変更できません。'update_setting()'を使用してください。",
+                exc_info=True
+            )
+            sys.exit(1) # プログラムの終了
         super().__setattr__(key, value) # 通常の動作
 
 class Download:
     def __init__(self, settings):
+        self.logger = logging.getLogger()
+        self.logger.debug("Downloadの__init__開始")
         self.save_dir = os.path.join(settings.download_dir, "YDownloader")
         os.makedirs(self.save_dir, exist_ok=True)
         self.retries = settings.retry_chance
@@ -303,35 +375,6 @@ class Download:
         os.makedirs(self.save_dir, exist_ok=True)
         self.temp_dir = settings.temp_dir
         self.cards = {}
-    
-    def _sanitize_filename(self, filename: str, replacement: str = "_") -> str:
-        """
-        ファイル名に使用できない文字を削除または置き換える
-        Windows, Mac, Linux 全てに対応(ユーザーのOSに合わせて自動調整されるように)
-        :param filename:変換したいファイル名
-        :param replacement: 置き換え文字(デフォルトは"_")
-        :return: 安全なファイル名
-        """
-        # 禁止文字設定
-        if os.name == 'nt': # Windowsの場合
-            forbidden_chars = r'[\x00-\x1f\\/*?:"<>|]'
-        else: # Linux/macOSの場合
-            forbidden_chars = r'[\x00-\x1f/]'  # スラッシュはディレクトリ区切りのため禁止
-        # 禁止文字を指定の文字(デフォルト"_")に置換
-        filename = re.sub(forbidden_chars, replacement, filename)
-        # Windowsでは先頭・末尾の空白やピリオドを削除
-        if os.name == 'nt':
-            filename = filename.strip(" .")
-            # Windowsの予約デバイス名を回避
-            reserved_names = {
-                "CON", "PRN", "AUX", "NUL",
-                *(f"COM{i}" for i in range(1, 10)),
-                *(f"LPT{i}" for i in range(1, 10)),
-            }
-            if filename.upper() in reserved_names:
-                filename += "_safe"
-        # 空のファイル名を回避
-        return filename if filename else "default_filename"
     
     # 基本的にいらない(後の確認用に一応コメントアウトにとどめる)
     # def _progress_hook(self, status):
@@ -367,24 +410,51 @@ class Download:
         :param page: Fletのpage
         """
         if not key or not page:
-            raise AttributeError("keyまたはpageの値が不正です。")
+            self.logger.error(
+                "keyまたはpageの値が不正です。",
+                exc_info=True
+            )
+            sys.exit(1) # プログラムの終了
         info_path = os.path.join(self.temp_dir, f"{key}.json")
         with open(info_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         url = data.get("url", None)
         if not url:
-            raise AttributeError("JSONファイルにおけるurlの値が不正です。")
+            self.logger.error(
+                "JSONファイルにおけるurlの値が不正です。",
+                exc_info=True
+            )
+            sys.exit(1) # プログラムの終了
         title = data.get("title", "Unknown Title")
         # uploader = data.get("uploader", "Unknown") # 後で作曲者とかの部分に使用したい
         content_type = data.get("content_type", None)
         is_entries = data.get("is_entries", False)
         if not is_entries:
             if content_type == "movie":
+                self.logger.info(f"self.download_movieを{url},{title}に対して実行します")
                 self.download_movie(url=url, filename=title, key=key, page=page)
             elif content_type == "music":
+                self.logger.info(f"self.download_musicを{url},{title}に対して実行します")
                 self.download_music(url=url, filename=title, key=key, page=page)
             else:
-                raise AttributeError("content_typeの値が不正です。")
+                self.logger.error(
+                    "content_typeの値が不正です。",
+                    exc_info=True
+                )
+                err_dlg = ft.AlertDialog(
+                    title=ft.Text("エラー"),
+                    modal=True,
+                    content=ft.Text("ダウンロードタイプの値が入手できませんでした。"),
+                    actions=[
+                        ft.TextButton(
+                            "閉じる", 
+                            on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
+                        )
+                    ],
+                    actions_alignment=ft.MainAxisAlignment.END,
+                )
+                page.views[0].controls.append(err_dlg)
+                page.update()
         else:
             # print("これは正常にメタデータが記録されたプレイリスト") # デバッグ用
             try:
@@ -392,35 +462,158 @@ class Download:
                 save_dir = os.path.join(self.save_dir, title)
                 os.makedirs(save_dir, exist_ok=True)
                 if not entries:
-                    raise AttributeError("entriesの値が不正です。")
+                    self.logger.error(
+                        f"entriesの値が不正です: {entries}",
+                        exc_info=True
+                    )
+                    sys.exit(1) # プログラムの終了
                 if content_type == "movie":
                     for index, entry in enumerate(entries):
-                        print(f"{index + 1}番目のコンテンツをダウンロードします") # デバッグ用
+                        self.logger.info(f"{index + 1}番目のコンテンツをダウンロードします")
                         entry_title = entry.get("title", None)
                         entry_url = entry.get("url", None)
                         if not entry_title or not entry_url:
-                            print(f"{index + 1}番目のentryのtitleまたはurlの値が不正です。")
+                            self.logger.warning(
+                                f"{index + 1}番目のentryのtitleまたはurlの値が不正です。",
+                                exc_info=True
+                            )
                             continue # スキップ
-                        self.download_movie(url=entry_url, filename=entry_title, content_save_dir=save_dir, page=page, is_entries=True)
-                    print("Download process complete. Executing post-download code.")
+                        result = self.download_movie(
+                            url=entry_url,
+                            filename=entry_title,
+                            content_save_dir=save_dir, 
+                            page=page,
+                            is_entries=True
+                        )
+                        if result == "NetWorkError":
+                            self.logger.error(
+                                "Movie download failed for NetWork Error",
+                                exc_info=True
+                            )
+                            err_dlg = ft.AlertDialog(
+                                title=ft.Text("エラー"),
+                                modal=True,
+                                content=ft.Text("ネットワーク接続を確認してください。"),
+                                actions=[
+                                    ft.TextButton(
+                                        "閉じる", 
+                                        on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
+                                    )
+                                ],
+                                actions_alignment=ft.MainAxisAlignment.END,
+                            )
+                            page.views[0].controls.append(err_dlg)
+                            page.update()
+                            break # ループを中断
+                        elif not result:
+                            self.logger.error(
+                                "Movie download failed. Stopping the process.",
+                                exc_info=True
+                            )
+                            err_dlg = ft.AlertDialog(
+                                title=ft.Text("エラー"),
+                                modal=True,
+                                content=ft.Text("プレイリストダウンロード中にエラーが発生しました。"),
+                                actions=[
+                                    ft.TextButton(
+                                        "閉じる", 
+                                        on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
+                                    )
+                                ],
+                                actions_alignment=ft.MainAxisAlignment.END,
+                            )
+                            page.views[0].controls.append(err_dlg)
+                            page.update()
+                            break # ループを中断
+                    self.logger.info(f"Download process complete. Executing post-download code. url: {url}")
                     self._fire_after_download(key=key, page=page)
-                    print(f"Movie download completed in format: {settings.movie_format}")
+                    self.logger.info(f"Movie download completed in format: {settings.movie_format}")
                 elif content_type == "music":
                     for index, entry in enumerate(entries):
-                        print(f"{index + 1}番目のコンテンツをダウンロードします") # デバッグ用
+                        self.logger.info(f"{index + 1}番目のコンテンツをダウンロードします")
                         entry_title = entry.get("title", None)
                         entry_url = entry.get("url", None)
                         if not entry_title or not entry_url:
-                            print(f"{index + 1}番目のentryのtitleの値が不正です。")
+                            self.logger.warning(
+                                f"{index + 1}番目のentryのtitleの値が不正です。",
+                                exc_info=True
+                            )
                             continue # スキップ
-                        self.download_music(url=entry_url, filename=entry_title, content_save_dir=save_dir, page=page, is_entries=True)
-                    print("Download process complete. Executing post-download code.")
+                        result = self.download_music(
+                            url=entry_url,
+                            filename=entry_title, 
+                            content_save_dir=save_dir, 
+                            page=page,
+                            is_entries=True
+                        )
+                        if result == "NetWorkError":
+                            self.logger.error(
+                                "Music download failed for NetWork Error",
+                                exc_info=True
+                            )
+                            err_dlg = ft.AlertDialog(
+                                title=ft.Text("エラー"),
+                                modal=True,
+                                content=ft.Text("ネットワーク接続を確認してください。"),
+                                actions=[
+                                    ft.TextButton(
+                                        "閉じる", 
+                                        on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
+                                    )
+                                ],
+                                actions_alignment=ft.MainAxisAlignment.END,
+                            )
+                            page.views[0].controls.append(err_dlg)
+                            page.update()
+                            break # ループを中断
+                        elif not result:
+                            self.logger.error(
+                                "Music download failed. Stopping the process.",
+                                exc_info=True
+                            )
+                            err_dlg = ft.AlertDialog(
+                                title=ft.Text("エラー"),
+                                modal=True,
+                                content=ft.Text("プレイリストダウンロード中にエラーが発生しました。"),
+                                actions=[
+                                    ft.TextButton(
+                                        "閉じる", 
+                                        on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
+                                    )
+                                ],
+                                actions_alignment=ft.MainAxisAlignment.END,
+                            )
+                            page.views[0].controls.append(err_dlg)
+                            page.update()
+                            break # ループを中断
+                    self.logger.info(f"Download process complete. Executing post-download code. url: {url}")
                     self._fire_after_download(key=key, page=page)
-                    print(f"Music download completed in format: {settings.music_format}")
+                    self.logger.info(f"Music download completed in format: {settings.music_format}")
                 else:
-                    raise AttributeError("content_typeの値が不正です。")
+                    self.logger.error(
+                        "content_typeの値が不正です。",
+                        exc_info=True
+                    )
+                    err_dlg = ft.AlertDialog(
+                        title=ft.Text("エラー"),
+                        modal=True,
+                        content=ft.Text("ダウンロードタイプの値が入手できませんでした。"),
+                        actions=[
+                            ft.TextButton(
+                                "閉じる", 
+                                on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
+                            )
+                        ],
+                        actions_alignment=ft.MainAxisAlignment.END,
+                    )
+                    page.views[0].controls.append(err_dlg)
+                    page.update()
             except Exception as ex:
-                raise ex
+                self.logger.error(
+                    ex,
+                    exc_info=True
+                )
+                sys.exit(1) # プログラムの終了
     
     def _fire_after_download(self, key=None, page=None):
         """
@@ -430,7 +623,11 @@ class Download:
         print("Post-download processing is now executed.")
         try:
             if not key or not page:
-                raise AttributeError("keyまたはpageの値が不正です。")
+                self.logger.error(
+                    "keyまたはpageの値が不正です。",
+                    exc_info=True
+                )
+                sys.exit(1) # プログラムの終了
             target_card = self.cards[key]
             target_column = target_card.content.content
             target_info = target_column.controls[0]
@@ -449,7 +646,11 @@ class Download:
             target_progress_bar.visible = False # プログレスバーが見えなくする
             page.update()
         except Exception as ex:
-            raise ex
+            self.logger.error(
+                ex,
+                exc_info=True
+            )
+            sys.exit(1)
     
     # そのうちコメント取得用にのみ使うかも。今の所は不要
     # def download_overview(self, url=False, max_comments=50, process_callback=None):
@@ -481,7 +682,7 @@ class Download:
     #                 info["comments"] = info["comments"][:max_comments]
                 
     #             # シンプルなファイル名を生成(例: tmp_動画タイトル_動画ID.json)
-    #             save_title = self._sanitize_filename(info.get("title", "video"))
+    #             save_title = sanitize_filename(info.get("title", "video"))
     #             video_id = info.get("id", "unknown")
     #             filename = f"tmp_{save_title}_{video_id}.json"
     #             output_filename = os.path.join(self.save_dir, filename)
@@ -520,9 +721,17 @@ class Download:
         :param is_entries: プレイリスト向け処理用のオプション(デフォルトはFalse)
         """
         if not url or not page:
-            raise AttributeError("Error: url or page is not defined")
+            self.logger.error(
+                "Error: url or page is not defined",
+                exc_info=True
+            )
+            sys.exit(1)
         if not key and not is_entries:
-            raise AttributeError("Error: key is not defined for not entries case")
+            self.logger.error(
+                "Error: key is not defined for not entries case",
+                exc_info=True
+            )
+            sys.exit(1)
         if not content_save_dir:
             content_save_dir = self.save_dir
         
@@ -532,14 +741,14 @@ class Download:
         
         quality_format = settings.movie_quality
         movie_format = settings.movie_format
-        print(quality_format, movie_format) # デバッグ用
+        self.logger.debug(quality_format, movie_format)
         
         # filenameが指定されていれば、その名前に拡張子を付与して保存する
         if filename:
             outtmpl = os.path.join(content_save_dir, f"{filename}.%(ext)s")
         else:
             outtmpl = os.path.join(content_save_dir, "%(title)s.%(ext)s")
-        print(outtmpl) # デバッグ用
+        self.logger.debug(outtmpl)
         
         ydl_opts = {
             "format": quality_format,
@@ -563,19 +772,57 @@ class Download:
                 # ここで、全てのダウンロード処理(およびマージ)が完了しているので、終了処理を一度だけ呼ぶ
                 # プレイリストでない時は別の個所で終了処理を行う(ダウンロード関数は繰り返されるため)
                 if not is_entries:
-                    print("Download process complete. Executing post-download code.")
+                    self.logger.info("Download process complete. Executing post-download code.")
                     self._fire_after_download(key=key, page=page)
-                    print(f"Movie download completed in format: {movie_format}")
-                break
+                    self.logger.info(f"Movie download completed in format: {movie_format}")
+                return True
             except Exception as ex:
                 if not self._check_network():
-                    print("A network error occurred. Please check your connection and try again.")
-                    raise
+                    if not is_entries:
+                        self.logger.error(
+                            "A network error occurred. Please check your connection and try again.",
+                            exc_info=True
+                        )
+                        err_dlg = ft.AlertDialog(
+                            title=ft.Text("エラー"),
+                            modal=True,
+                            content=ft.Text("ネットワーク接続状況を確認してください"),
+                            actions=[
+                                ft.TextButton(
+                                    "閉じる", 
+                                    on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
+                                )
+                            ],
+                            actions_alignment=ft.MainAxisAlignment.END,
+                        )
+                        page.views[0].controls.append(err_dlg)
+                        page.update()
+                        self._fire_after_download(key=key, page=page)
+                    return "NetWorkError"
                 attempt += 1
-                print(f"Attempt {attempt} failed: {ex}")
+                self.logger.info(f"Attempt {attempt} failed: {ex}")
                 if attempt >= self.retries:
-                    print("Max retry limit reached. Aborting movie download.")
-                    raise
+                    if not is_entries:
+                        self.logger.error(
+                            "Max retry limit reached. Aborting movie download.",
+                            exc_info=True
+                        )
+                        err_dlg = ft.AlertDialog(
+                            title=ft.Text("エラー"),
+                            modal=True,
+                            content=ft.Text(f"{self.retries}回ダウンロードに失敗しました。"),
+                            actions=[
+                                ft.TextButton(
+                                    "閉じる", 
+                                    on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page),
+                                ),
+                            ],
+                            actions_alignment=ft.MainAxisAlignment.END,
+                        )
+                        page.views[0].controls.append(err_dlg)
+                        page.update()
+                        self._fire_after_download(key=key, page=page)
+                    return False
     
     def download_music(self, url=False, filename=None, content_save_dir=False, key=None, page=None, is_entries=False):
         """
@@ -592,9 +839,17 @@ class Download:
         :param is_entries: プレイリスト向け処理用のオプション(デフォルトはFalse)
         """
         if not url or not page:
-            raise AttributeError("Error: url or page is not defined")
+            self.logger.error(
+                "Error: url or page is not defined",
+                exc_info=True
+            )
+            sys.exit(1)
         if not key and not is_entries:
-            raise AttributeError("Error: key is not defined for not entries case")
+            self.logger.error(
+                "Error: key is not defined for not entries case",
+                exc_info=True
+            )
+            sys.exit(1)
         if not content_save_dir:
             content_save_dir = self.save_dir
         
@@ -604,14 +859,14 @@ class Download:
         
         quality_format = settings.music_quality
         music_format = settings.music_format
-        print(quality_format, music_format) # デバッグ用
+        self.logger.debug(quality_format, music_format)
         
         # filenameが指定されていれば、その名前に拡張子を付与して保存する
         if filename:
             outtmpl = os.path.join(content_save_dir, f"{filename}.%(ext)s")
         else:
             outtmpl = os.path.join(content_save_dir, "%(title)s.%(ext)s")
-        print(outtmpl) # デバッグ用
+        self.logger.debug(outtmpl)
         
         ydl_opts = {
             "format": quality_format,
@@ -632,35 +887,74 @@ class Download:
                 # ここで、全てのダウンロード処理(およびマージ)が完了しているので、終了処理を一度だけ呼ぶ
                 # プレイリストでない時は別の個所で終了処理を行う(ダウンロード関数は繰り返されるため)
                 if not is_entries:
-                    print("Download process complete. Executing post-download code.")
+                    self.logger.info("Download process complete. Executing post-download code.")
                     self._fire_after_download(key=key, page=page)
-                    print(f"Music download completed in format: {music_format}")
-                break
+                    self.logger.info(f"Music download completed in format: {music_format}")
+                return True
             except Exception as ex:
                 if not self._check_network():
-                    print("A network error occurred. Please check your connection and try again.")
-                    raise
+                    if not is_entries:
+                        self.logger.error(
+                            "A network error occurred. Please check your connection and try again.",
+                            exc_info=True
+                        )
+                        err_dlg = ft.AlertDialog(
+                            title=ft.Text("エラー"),
+                            modal=True,
+                            content=ft.Text("ネットワーク接続状況を確認してください"),
+                            actions=[
+                                ft.TextButton(
+                                    "閉じる", 
+                                    on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page),
+                                ),
+                            ],
+                            actions_alignment=ft.MainAxisAlignment.END,
+                        )
+                        page.views[0].controls.append(err_dlg)
+                        page.update()
+                        self._fire_after_download(key=key, page=page)
+                    return "NetWorkError"
                 attempt += 1
-                print(f"Attempt {attempt} failed: {ex}")
+                self.logger.info(f"Attempt {attempt} failed: {ex}")
                 if attempt >= self.retries:
-                    print("Max retry limit reached. Aborting music download.")
-                    raise
+                    if not is_entries:
+                        self.logger.error(
+                            "Max retry limit reached. Aborting music download.",
+                            exc_info=True
+                        )
+                        err_dlg = ft.AlertDialog(
+                            title=ft.Text("エラー"),
+                            modal=True,
+                            content=ft.Text(f"{self.retries}回ダウンロードに失敗しました。"),
+                            actions=[
+                                ft.TextButton(
+                                    "閉じる", 
+                                    on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page),
+                                ),
+                            ],
+                            actions_alignment=ft.MainAxisAlignment.END,
+                        )
+                        page.views[0].controls.append(err_dlg)
+                        page.update()
+                        self._fire_after_download(key=key, page=page)
+                    return False
 
 class YDownloader:
     def __init__(self, settings, downloader):
         # 設定やグローバル変数相当の初期化
+        self.logger = logging.getLogger()
+        self.logger.debug("YDownloaderの__init__開始")
         self.retries = settings.retry_chance
         self.temp_dir = settings.temp_dir
         self.pre_url_list = []
         self.pre_total_urls = 0
         self.pre_current_urls = 0
         self.cards = {}
-        # self.card_uids = {}
         self.added_urls = []
         self.condition_pre = threading.Condition()
         self.downloader = downloader
     
-    def preview_video_info(self, url):
+    def preview_video_info(self, url, page):
         """
         指定URLの動画情報を取得し、一時ディレクトリにJSONとして保存する。
         GUIでの表示用に動画のサムネイル画像、タイトル、投稿日時を取得して、一時ファイルとして保存する。
@@ -668,9 +962,14 @@ class YDownloader:
         アプリが異常終了したときは、すぐに復帰できるように、一時ファイルは削除しない。
         
         :param url: 動画のURL
+        :param page: Fletのpage
         """
         if not url:
-            raise Exception("Error: url is not defined")
+            self.logger.error(
+                "Error: url is not defined",
+                exc_info=True
+            )
+            sys.exit(1)
         
         ydl_opts = {
             "skip_download": True, # 動画本体はダウンロードしない
@@ -680,7 +979,7 @@ class YDownloader:
         attempt = 0
         while attempt < self.retries:
             try:
-                print(f"{url}に対してpreview_video_infoを実行します。") # デバッグ用
+                self.logger.debug(f"{url}に対してpreview_video_infoを実行します。")
                 with YoutubeDL(ydl_opts) as ydl:
                     # 動画情報を取得
                     info = ydl.extract_info(url, download=False)
@@ -689,12 +988,17 @@ class YDownloader:
                 # プレイリストならばプレイリスト名でフォルダーを作成して、そのなかにプレイリストの中身の動画を底にダウンロードするように変更する
                 # print(json.dump(info, indent=2, ensure_ascii=False)) # デバッグ用
                 if not info:
-                    raise AttributeError(f"Error: Could not retrieve information for {url}") # ここで終了しないと後続処理がエラーになる
+                    self.logger.error(
+                        f"Error: Could not retrieve information for {url}",
+                        exc_info=True
+                    )
+                    # ここで終了しないと後続処理がエラーになる
+                    sys.exit(1)
                 # ユニークなIDを生成
                 unique_id = str(uuid.uuid4().hex)
                 # タイトルを取得して安全なファイル名に変換
                 title = info.get("title", "Unknown Title")
-                safe_title = self.downloader._sanitize_filename(title)
+                safe_title = sanitize_filename(title)
                 # 動画の投稿者名を取得
                 uploader = info.get("uploader", "Unknown Uploader")
                 # 動画の概要欄情報の取得
@@ -702,7 +1006,7 @@ class YDownloader:
                 # サムネイル画像の保存
                 thumbnail_path = None
                 try:
-                    thumbnail_url = info.get("thumbnail")
+                    thumbnail_url = info.get("thumbnail", None)
                     if thumbnail_url:
                         thumb_filename = f"{unique_id}_thumb.jpg"
                         thumbnail_path = os.path.join(self.temp_dir, thumb_filename)
@@ -710,7 +1014,11 @@ class YDownloader:
                         with open(thumbnail_path, "wb") as f:
                             f.write(response.content)
                 except Exception as ex:
-                    print(f"Error: {ex}")
+                    self.logger.error(
+                        f"Error: {ex}",
+                        exc_info=True
+                    )
+                    sys.exit(1) # プログラムの終了
                 # 投稿日時のフォーマット
                 upload_date = info.get("upload_date", "Unknown Date")
                 if upload_date and upload_date != "Unknown Date":
@@ -718,17 +1026,17 @@ class YDownloader:
                 # entriesがあればプレイリストと判定できる
                 entries = info.get("entries", None)
                 if entries:
-                    print("これはプレイリストです") # デバッグ用
+                    self.logger.debug("これはプレイリストです")
                     entries_numbers = len(entries)
                     extracted_entries = []
                     for index, entry in enumerate(entries):
-                        entry_safe_title = self.downloader._sanitize_filename(entry.get("title", None))
+                        entry_safe_title = sanitize_filename(entry.get("title", None))
                         entry_url = entry.get("webpage_url", None)
                         entry_uploader = entry.get("uploader", "Unknown Uploader")
                         entry_upload_date = entry.get("uploader", "Unknown Uploader")
                         entry_overview = entry.get("description", None)
                         if not entry_safe_title or not entry_url:
-                            print(f"entry {index} は無効なデータの為、スキップされました")
+                            self.logger.info(f"entry {index} は無効なデータの為、スキップされました")
                             continue # スキップ
                         extracted_entries.append(
                             {
@@ -776,11 +1084,17 @@ class YDownloader:
                 return info_path
             except Exception as ex:
                 if not self.downloader._check_network():
-                    print("A network error occurred. Please check your connection and try again.")
-                    raise
+                    self.logger.error(
+                        "A network error occurred. Please check your connection and try again.",
+                        exc_info=True
+                    )
+                    return "NetWorkError"
                 # エラーメッセージにプレイリスト特有の警告が含まれている場合は、プレイリストとして最低限の情報を記録する
                 if "Incomplete data received" in str(ex) or "youtube:tab" in str(ex):
-                    print("プレイリストとみなせるエラーが発生したため、最低限のプレイリスト情報を記録します。")
+                    self.logger.info(
+                        "プレイリストとみなせるエラーが発生したため、最低限のプレイリスト情報を記録します。",
+                        exc_info=True
+                    )
                     unique_id = str(uuid.uuid4().hex)
                     playlist_info = {
                         "id": unique_id,
@@ -794,21 +1108,13 @@ class YDownloader:
                         json.dump(playlist_info, f, ensure_ascii=False, indent=2)
                     return info_path
                 attempt += 1
-                print(f"Attempt {attempt} failed: {ex}")
+                self.logger.info(f"Attempt {attempt} failed: {ex}")
                 if attempt >= self.retries:
-                    print(f"動画情報の取得に失敗しました: {ex}")
+                    self.logger.error(
+                        f"動画情報の取得に失敗しました: {ex}",
+                        exc_info=True
+                    )
                     return None
-    
-    def cleanup_temp_files(self):
-        """
-        一時ディレクトリと一時ファイルを削除する。(正常終了時用)
-        """
-        if os.path.exists(self.temp_dir):
-            try:
-                shutil.rmtree(self.temp_dir)
-                print("一時ファイルを削除しました")
-            except Exception as ex:
-                print(f"一時ファイルの削除に失敗しました: {ex}")
     
     def compute_perfect_size(self, page: ft.Page, thumb_width, thumb_height, key):
         """
@@ -871,223 +1177,109 @@ class YDownloader:
                 page.update()
             try:
                 self.pre_current_urls += 1
-                json_path = self.preview_video_info(url=url)
-                # デバッグ用
-                # print(f"Generated JSON path: {json_path}")
-                with open(json_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                # デバッグ用
-                # print(f"data: {data}")
-                is_playlist = data.get("is_playlist", "ERROR")
-                if is_playlist == "ERROR":
-                    raise AttributeError("is_playlistの値が不正です。")
-                # 各Cardに追加されるkey
-                key = data.get("id", "Unknown ID")
-                if key == "Unknown ID":
-                    raise ValueError("IDが不明です。")
-                is_entries = data.get("is_entries", False)
-                if is_entries:
-                    print("これは正常にメタデータを入手できたプレイリスト") # デバッグ用
-                    entry_video_title = ft.TextField(
-                        label="タイトル",
-                        value=data.get("title", "Unknown Title"),
-                        adaptive=True,
-                    )
-                    entry_video_date = ft.Text(
-                        value=data.get("upload_date", "Unknown"),
-                    )
-                    entry_video_uploader = ft.TextField(
-                        label="投稿者",
-                        value=data.get("uploader", "Unknown"),
-                        adaptive=True,
-                    )
-                    entry_thumbnail_img_src = data.get("thumbnail_path", None)
-                    if not entry_thumbnail_img_src:
-                        # サムネイルがない場合は、compute_perfect_sizeでプレースホルダー画像を生成
-                        entry_placeholder = self.compute_perfect_size(page, 0, 0, key)
-                        entry_video_thumbnail_img = ft.Image(
-                            src=entry_placeholder["src"],
-                            width=entry_placeholder["width"],
-                            height=entry_placeholder["height"],
-                            fit=ft.ImageFit.CONTAIN,
-                            border_radius=ft.border_radius.all(10),
-                        )
-                    else:
-                        # 画像を読み込み、16:9の枠内に収まるように中央配置した背景画像を作成
-                        with Image.open(entry_thumbnail_img_src) as img:
-                            entry_img_width, entry_img_height = img.size
-                            entry_perfect_img_size = self.compute_perfect_size(page, entry_img_width, entry_img_height, key)
-                            # 灰色の背景画像作成
-                            # リサイズはなし
-                            entry_background = Image.new("RGB", (entry_perfect_img_size["width"], entry_perfect_img_size["height"]), (128, 128, 128))
-                            entry_background.paste(img, (entry_perfect_img_size["offset_x"], entry_perfect_img_size["offset_y"]))
-                            # サムネイル画像配置枠
-                            entry_frame_width = entry_perfect_img_size["frame_width"]
-                            entry_frame_height = entry_perfect_img_size["frame_height"]
-                            # .temp内の一時ファイルに保存
-                            with tempfile.NamedTemporaryFile(delete=False, dir=self.temp_dir, suffix=".jpg") as entry_temp_file:
-                                entry_temp_path = entry_temp_file.name
-                                entry_background.save(entry_temp_path, format="JPEG", quality=95) # JPG形式で保存
-                        # 元のファイルをバックアップ
-                        entry_backup_path = entry_thumbnail_img_src + ".bak"
-                        os.rename(entry_thumbnail_img_src, entry_backup_path)
-                        # 一時ファイルを元のファイルに置き換え
-                        os.rename(entry_temp_path, entry_thumbnail_img_src)
-                        # バックアップ削除(上書きが成功した場合)
-                        os.remove(entry_backup_path)
-                        entry_video_thumbnail_img = ft.Image(
-                            src=entry_thumbnail_img_src,
-                            width=entry_frame_width,
-                            height=entry_frame_height,
-                            fit=ft.ImageFit.CONTAIN,
-                            border_radius=ft.border_radius.all(10),
-                        )
-                    # RadioGroupを作成
-                    # 保存形式を個々に選択できるようにする(MovieとMusic)
-                    entry_rg = ft.RadioGroup(
-                        value=settings.content_type,
-                        content=ft.Row([
-                            ft.Radio(value="movie", label="Movie"),
-                            ft.Radio(value="music", label="Music"),
-                        ]),
-                    )
-                    # lambda式の「遅延束縛」を回避するためにデフォルト引数としてkeyをバインドする
-                    entry_delete_icon = ft.IconButton(
-                        icon=ft.icons.DELETE_FOREVER_ROUNDED,
-                        on_click=lambda e, key=key : self.remove_card(e, key, page, url)
-                    )
-                    entry_download_icon = ft.IconButton(
-                        icon=ft.icons.CLOUD_DOWNLOAD_ROUNDED,
-                        on_click=lambda e, key=key: self.download_video_by_key(e, key, page)
-                    )
-                    entry_progress = ft.ProgressBar(
-                        visible=False,
-                        value=None,
-                    )
-                    entry_progress_container = ft.Container(
-                        content=entry_progress,
-                        expand=True, # 親であるCardの幅いっぱいに広がるように
-                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                        border_radius=ft.border_radius.all(8),
-                    )
-                    entry_about_info = ft.Column(
-                        controls=[
-                            entry_video_title,
-                            ft.Row(
-                                controls=[
-                                    entry_video_uploader,
-                                    ft.Row(
-                                        controls=[
-                                            entry_rg,
-                                            ft.Column(
-                                                controls=[
-                                                    entry_video_date,
-                                                    ft.Text(
-                                                        value=f"{data.get('numbers', 'Unknown')}個"
-                                                    ),
-                                                ],
-                                                horizontal_alignment=ft.CrossAxisAlignment.CENTER
-                                            ),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.END
-                                    ),
-                                ],
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                json_path = self.preview_video_info(url, page)
+                if json_path == "NetWorkError":
+                    err_dlg = ft.AlertDialog(
+                        title=ft.Text("エラー"),
+                        modal=True,
+                        content=ft.Text("ネットワーク接続を確認してください。"),
+                        actions=[
+                            ft.TextButton(
+                                "閉じる", 
+                                on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
                             )
                         ],
-                        expand=True,
+                        actions_alignment=ft.MainAxisAlignment.END,
                     )
-                    entry_info = ft.Row(
-                        controls=[
-                            entry_video_thumbnail_img,
-                            entry_about_info,
-                            ft.Column(
-                                controls=[
-                                    entry_download_icon,
-                                    entry_delete_icon,
-                                ],
-                                alignment=ft.alignment.center,
-                            ),
+                    page.views[0].controls.append(err_dlg)
+                    page.update()
+                elif not json_path:
+                    err_dlg = ft.AlertDialog(
+                        title=ft.Text("エラー"),
+                        modal=True,
+                        content=ft.Text("動画情報の取得に失敗しました。"),
+                        actions=[
+                            ft.TextButton(
+                                "閉じる", 
+                                on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
+                            )
                         ],
-                        alignment=ft.alignment.center,
+                        actions_alignment=ft.MainAxisAlignment.END,
                     )
-                    entry_video_card = ft.Card(
-                        key=key,
-                        content=ft.Container(
-                            content=ft.Column(
-                                controls=[
-                                    entry_info,
-                                    entry_progress_container,
-                                ],
-                                spacing=10,
-                            ),
-                            padding=4,
-                        ),
-                        margin=0,
-                    )
-                    self.cards[key] = entry_video_card
-                    self.downloader.cards[key] = entry_video_card # こうすることで、DownloadクラスからCardの要素の操作ができる
-                    self.added_urls.append(url)
-                    page.add(entry_video_card)
+                    page.views[0].controls.append(err_dlg)
+                    page.update()
                 else:
-                    if not is_playlist:
-                        video_title = ft.TextField(
+                    self.logger.debug(f"Generated JSON path: {json_path}")
+                    with open(json_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    self.logger.debug(f"data: {data}")
+                    is_playlist = data.get("is_playlist", "ERROR")
+                    if is_playlist == "ERROR":
+                        raise AttributeError("is_playlistの値が不正です。")
+                    # 各Cardに追加されるkey
+                    key = data.get("id", "Unknown ID")
+                    if key == "Unknown ID":
+                        raise ValueError("IDが不明です。")
+                    is_entries = data.get("is_entries", False)
+                    if is_entries:
+                        print("これは正常にメタデータを入手できたプレイリスト") # デバッグ用
+                        entry_video_title = ft.TextField(
                             label="タイトル",
                             value=data.get("title", "Unknown Title"),
                             adaptive=True,
                         )
-                        video_date = ft.Text(
+                        entry_video_date = ft.Text(
                             value=data.get("upload_date", "Unknown"),
                         )
-                        video_uploader = ft.TextField(
+                        entry_video_uploader = ft.TextField(
                             label="投稿者",
                             value=data.get("uploader", "Unknown"),
                             adaptive=True,
                         )
-                        thumbnail_img_src = data.get("thumbnail_path", None)
-                        if not thumbnail_img_src:
+                        entry_thumbnail_img_src = data.get("thumbnail_path", None)
+                        if not entry_thumbnail_img_src:
                             # サムネイルがない場合は、compute_perfect_sizeでプレースホルダー画像を生成
-                            placeholder = self.compute_perfect_size(page, 0, 0, key)
-                            video_thumbnail_img = ft.Image(
-                                src=placeholder["src"],
-                                width=placeholder["width"],
-                                height=placeholder["height"],
+                            entry_placeholder = self.compute_perfect_size(page, 0, 0, key)
+                            entry_video_thumbnail_img = ft.Image(
+                                src=entry_placeholder["src"],
+                                width=entry_placeholder["width"],
+                                height=entry_placeholder["height"],
                                 fit=ft.ImageFit.CONTAIN,
                                 border_radius=ft.border_radius.all(10),
                             )
                         else:
                             # 画像を読み込み、16:9の枠内に収まるように中央配置した背景画像を作成
-                            with Image.open(thumbnail_img_src) as img:
-                                img_width, img_height = img.size
-                                perfect_img_size = self.compute_perfect_size(page, img_width, img_height, key)
+                            with Image.open(entry_thumbnail_img_src) as img:
+                                entry_img_width, entry_img_height = img.size
+                                entry_perfect_img_size = self.compute_perfect_size(page, entry_img_width, entry_img_height, key)
                                 # 灰色の背景画像作成
                                 # リサイズはなし
-                                background = Image.new("RGB", (perfect_img_size["width"], perfect_img_size["height"]), (128, 128, 128))
-                                background.paste(img, (perfect_img_size["offset_x"], perfect_img_size["offset_y"]))
+                                entry_background = Image.new("RGB", (entry_perfect_img_size["width"], entry_perfect_img_size["height"]), (128, 128, 128))
+                                entry_background.paste(img, (entry_perfect_img_size["offset_x"], entry_perfect_img_size["offset_y"]))
                                 # サムネイル画像配置枠
-                                frame_width = perfect_img_size["frame_width"]
-                                frame_height = perfect_img_size["frame_height"]
+                                entry_frame_width = entry_perfect_img_size["frame_width"]
+                                entry_frame_height = entry_perfect_img_size["frame_height"]
                                 # .temp内の一時ファイルに保存
-                                with tempfile.NamedTemporaryFile(delete=False, dir=self.temp_dir, suffix=".jpg") as temp_file:
-                                    temp_path = temp_file.name
-                                    background.save(temp_path, format="JPEG", quality=95) # JPG形式で保存
+                                with tempfile.NamedTemporaryFile(delete=False, dir=self.temp_dir, suffix=".jpg") as entry_temp_file:
+                                    entry_temp_path = entry_temp_file.name
+                                    entry_background.save(entry_temp_path, format="JPEG", quality=95) # JPG形式で保存
                             # 元のファイルをバックアップ
-                            backup_path = thumbnail_img_src + ".bak"
-                            os.rename(thumbnail_img_src, backup_path)
+                            entry_backup_path = entry_thumbnail_img_src + ".bak"
+                            os.rename(entry_thumbnail_img_src, entry_backup_path)
                             # 一時ファイルを元のファイルに置き換え
-                            os.rename(temp_path, thumbnail_img_src)
+                            os.rename(entry_temp_path, entry_thumbnail_img_src)
                             # バックアップ削除(上書きが成功した場合)
-                            os.remove(backup_path)
-                            video_thumbnail_img = ft.Image(
-                                src=thumbnail_img_src,
-                                width=frame_width,
-                                height=frame_height,
+                            os.remove(entry_backup_path)
+                            entry_video_thumbnail_img = ft.Image(
+                                src=entry_thumbnail_img_src,
+                                width=entry_frame_width,
+                                height=entry_frame_height,
                                 fit=ft.ImageFit.CONTAIN,
                                 border_radius=ft.border_radius.all(10),
                             )
                         # RadioGroupを作成
                         # 保存形式を個々に選択できるようにする(MovieとMusic)
-                        rg = ft.RadioGroup(
+                        entry_rg = ft.RadioGroup(
                             value=settings.content_type,
                             content=ft.Row([
                                 ft.Radio(value="movie", label="Movie"),
@@ -1095,64 +1287,74 @@ class YDownloader:
                             ]),
                         )
                         # lambda式の「遅延束縛」を回避するためにデフォルト引数としてkeyをバインドする
-                        delete_icon = ft.IconButton(
+                        entry_delete_icon = ft.IconButton(
                             icon=ft.icons.DELETE_FOREVER_ROUNDED,
-                            on_click=lambda e, key=key : self.remove_card(e, key, page, url)
+                            on_click=lambda e, key=key : self.remove_card(e, key, page, url),
+                            tooltip="削除",
                         )
-                        download_icon = ft.IconButton(
+                        entry_download_icon = ft.IconButton(
                             icon=ft.icons.CLOUD_DOWNLOAD_ROUNDED,
-                            on_click=lambda e, key=key: self.download_video_by_key(e, key, page)
+                            on_click=lambda e, key=key: self.download_video_by_key(e, key, page),
+                            tooltip="ダウンロード",
                         )
-                        progress = ft.ProgressBar(
+                        entry_progress = ft.ProgressBar(
                             visible=False,
                             value=None,
                         )
-                        progress_container = ft.Container(
-                            content=progress,
+                        entry_progress_container = ft.Container(
+                            content=entry_progress,
                             expand=True, # 親であるCardの幅いっぱいに広がるように
                             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                             border_radius=ft.border_radius.all(8),
                         )
-                        about_info = ft.Column(
+                        entry_about_info = ft.Column(
                             controls=[
-                                video_title,
+                                entry_video_title,
                                 ft.Row(
                                     controls=[
-                                        video_uploader,
+                                        entry_video_uploader,
                                         ft.Row(
                                             controls=[
-                                                rg,
-                                                video_date,
+                                                entry_rg,
+                                                ft.Column(
+                                                    controls=[
+                                                        entry_video_date,
+                                                        ft.Text(
+                                                            value=f"{data.get('numbers', 'Unknown')}個"
+                                                        ),
+                                                    ],
+                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                ),
                                             ],
-                                            alignment=ft.MainAxisAlignment.END
+                                            alignment=ft.MainAxisAlignment.END,
                                         ),
                                     ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN
-                                )
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                ),
                             ],
                             expand=True,
                         )
-                        info = ft.Row(
+                        entry_info = ft.Row(
                             controls=[
-                                video_thumbnail_img,
-                                about_info,
+                                entry_video_thumbnail_img,
+                                entry_about_info,
                                 ft.Column(
                                     controls=[
-                                        download_icon,
-                                        delete_icon,
+                                        entry_download_icon,
+                                        entry_delete_icon,
                                     ],
                                     alignment=ft.alignment.center,
                                 ),
                             ],
                             alignment=ft.alignment.center,
                         )
-                        video_card = ft.Card(
+                        entry_video_card = ft.Card(
                             key=key,
                             content=ft.Container(
                                 content=ft.Column(
                                     controls=[
-                                        info,
-                                        progress_container,
+                                        entry_info,
+                                        entry_progress_container,
                                     ],
                                     spacing=10,
                                 ),
@@ -1160,113 +1362,271 @@ class YDownloader:
                             ),
                             margin=0,
                         )
-                        self.cards[key] = video_card
-                        self.downloader.cards[key] = video_card # こうすることで、DownloadクラスからCardの要素の操作ができる
+                        self.cards[key] = entry_video_card
+                        self.downloader.cards[key] = entry_video_card # こうすることで、DownloadクラスからCardの要素の操作ができる
                         self.added_urls.append(url)
-                        page.add(video_card)
-                        # self.card_uids[key] = video_card.uid
+                        self.card_container.controls.append(entry_video_card)
+                        page.update()
                     else:
-                        # ここはプレイリストのリンクが入力されて、メタデータが正常に入手できなかった場合
-                        playlist_title = ft.TextField(
-                            label="プレイリスト名",
-                            value="Unknown",
-                            adaptive=True,
-                        )
-                        playlist_date = ft.Text(
-                            value="Unknown",
-                        )
-                        playlist_uploader = ft.TextField(
-                            label="投稿者",
-                            value="Unknown",
-                            adaptive=True,
-                        )
-                        placeholder_playlist = self.compute_perfect_size(page, 0, 0, key)
-                        playlist_thumb_img = ft.Image(
-                            src=placeholder_playlist["src"],
-                            width=placeholder_playlist["width"],
-                            height=placeholder_playlist["height"],
-                            fit=ft.ImageFit.CONTAIN,
-                            border_radius=ft.border_radius.all(10),
-                        )
-                        playlist_rg = ft.RadioGroup(
-                            value=settings.content_type,
-                            content=ft.Row([
-                                ft.Radio(value="movie", label="Movie"),
-                                ft.Radio(value="music", label="Music"),
-                            ]),
-                        )
-                        # lambda式の「遅延束縛」を回避するためにデフォルト引数としてkeyをバインドする
-                        playlist_delete_icon = ft.IconButton(
-                            icon=ft.icons.DELETE_FOREVER_ROUNDED,
-                            on_click=lambda e, key=key: self.remove_card(e, key, page, url)
-                        )
-                        playlist_download_icon = ft.IconButton(
-                            icon=ft.icons.CLOUD_DOWNLOAD_ROUNDED,
-                            on_click=lambda e, key=key: self.download_video_by_key(e, key, page)
-                        )
-                        playlist_progress = ft.ProgressBar(
-                            visible=False,
-                            value=None,
-                        )
-                        playlist_progress_container = ft.Container(
-                            content=playlist_progress,
-                            expand=True,
-                            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                            border_radius=ft.border_radius.all(8),
-                        )
-                        playlist_about_info = ft.Column(
-                            controls=[
-                                playlist_title,
-                                ft.Row(
-                                    controls=[
-                                        playlist_uploader,
-                                        ft.Row(
-                                            controls=[
-                                                playlist_rg,
-                                                playlist_date,
-                                            ],
-                                            alignment=ft.MainAxisAlignment.END
-                                        ),
-                                    ],
-                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                        if not is_playlist:
+                            video_title = ft.TextField(
+                                label="タイトル",
+                                value=data.get("title", "Unknown Title"),
+                                adaptive=True,
+                            )
+                            video_date = ft.Text(
+                                value=data.get("upload_date", "Unknown"),
+                            )
+                            video_uploader = ft.TextField(
+                                label="投稿者",
+                                value=data.get("uploader", "Unknown"),
+                                adaptive=True,
+                            )
+                            thumbnail_img_src = data.get("thumbnail_path", None)
+                            if not thumbnail_img_src:
+                                # サムネイルがない場合は、compute_perfect_sizeでプレースホルダー画像を生成
+                                placeholder = self.compute_perfect_size(page, 0, 0, key)
+                                video_thumbnail_img = ft.Image(
+                                    src=placeholder["src"],
+                                    width=placeholder["width"],
+                                    height=placeholder["height"],
+                                    fit=ft.ImageFit.CONTAIN,
+                                    border_radius=ft.border_radius.all(10),
                                 )
-                            ],
-                            expand=True,
-                        )
-                        playlist_info = ft.Row(
-                            controls=[
-                                playlist_thumb_img,
-                                playlist_about_info,
-                                ft.Column(
-                                    controls=[
-                                        playlist_download_icon,
-                                        playlist_delete_icon,
-                                    ],
-                                    alignment=ft.alignment.center,
+                            else:
+                                # 画像を読み込み、16:9の枠内に収まるように中央配置した背景画像を作成
+                                with Image.open(thumbnail_img_src) as img:
+                                    img_width, img_height = img.size
+                                    perfect_img_size = self.compute_perfect_size(page, img_width, img_height, key)
+                                    # 灰色の背景画像作成
+                                    # リサイズはなし
+                                    background = Image.new("RGB", (perfect_img_size["width"], perfect_img_size["height"]), (128, 128, 128))
+                                    background.paste(img, (perfect_img_size["offset_x"], perfect_img_size["offset_y"]))
+                                    # サムネイル画像配置枠
+                                    frame_width = perfect_img_size["frame_width"]
+                                    frame_height = perfect_img_size["frame_height"]
+                                    # .temp内の一時ファイルに保存
+                                    with tempfile.NamedTemporaryFile(delete=False, dir=self.temp_dir, suffix=".jpg") as temp_file:
+                                        temp_path = temp_file.name
+                                        background.save(temp_path, format="JPEG", quality=95) # JPG形式で保存
+                                # 元のファイルをバックアップ
+                                backup_path = thumbnail_img_src + ".bak"
+                                os.rename(thumbnail_img_src, backup_path)
+                                # 一時ファイルを元のファイルに置き換え
+                                os.rename(temp_path, thumbnail_img_src)
+                                # バックアップ削除(上書きが成功した場合)
+                                os.remove(backup_path)
+                                video_thumbnail_img = ft.Image(
+                                    src=thumbnail_img_src,
+                                    width=frame_width,
+                                    height=frame_height,
+                                    fit=ft.ImageFit.CONTAIN,
+                                    border_radius=ft.border_radius.all(10),
+                                )
+                            # RadioGroupを作成
+                            # 保存形式を個々に選択できるようにする(MovieとMusic)
+                            rg = ft.RadioGroup(
+                                value=settings.content_type,
+                                content=ft.Row([
+                                    ft.Radio(value="movie", label="Movie"),
+                                    ft.Radio(value="music", label="Music"),
+                                ]),
+                            )
+                            # lambda式の「遅延束縛」を回避するためにデフォルト引数としてkeyをバインドする
+                            delete_icon = ft.IconButton(
+                                icon=ft.icons.DELETE_FOREVER_ROUNDED,
+                                on_click=lambda e, key=key : self.remove_card(e, key, page, url),
+                                tooltip="削除",
+                            )
+                            download_icon = ft.IconButton(
+                                icon=ft.icons.CLOUD_DOWNLOAD_ROUNDED,
+                                on_click=lambda e, key=key: self.download_video_by_key(e, key, page),
+                                tooltip="ダウンロード",
+                            )
+                            progress = ft.ProgressBar(
+                                visible=False,
+                                value=None,
+                            )
+                            progress_container = ft.Container(
+                                content=progress,
+                                expand=True, # 親であるCardの幅いっぱいに広がるように
+                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                border_radius=ft.border_radius.all(8),
+                            )
+                            about_info = ft.Column(
+                                controls=[
+                                    video_title,
+                                    ft.Row(
+                                        controls=[
+                                            video_uploader,
+                                            ft.Row(
+                                                controls=[
+                                                    rg,
+                                                    video_date,
+                                                ],
+                                                alignment=ft.MainAxisAlignment.END,
+                                            ),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                ],
+                                expand=True,
+                            )
+                            info = ft.Row(
+                                controls=[
+                                    video_thumbnail_img,
+                                    about_info,
+                                    ft.Column(
+                                        controls=[
+                                            download_icon,
+                                            delete_icon,
+                                        ],
+                                        alignment=ft.alignment.center,
+                                    ),
+                                ],
+                                alignment=ft.alignment.center,
+                            )
+                            video_card = ft.Card(
+                                key=key,
+                                content=ft.Container(
+                                    content=ft.Column(
+                                        controls=[
+                                            info,
+                                            progress_container,
+                                        ],
+                                        spacing=10,
+                                    ),
+                                    padding=4,
                                 ),
-                            ],
-                            alignment=ft.alignment.center,
-                        )
-                        playlist_card = ft.Card(
-                            key=key,
-                            content=ft.Container(
-                                content=ft.Column(
-                                    controls=[
-                                        playlist_info,
-                                        playlist_progress_container,
-                                    ],
-                                    spacing=10,
+                                margin=0,
+                            )
+                            self.cards[key] = video_card
+                            self.downloader.cards[key] = video_card # こうすることで、DownloadクラスからCardの要素の操作ができる
+                            self.added_urls.append(url)
+                            self.card_container.controls.append(video_card)
+                            page.update()
+                        else:
+                            # ここはプレイリストのリンクが入力されて、メタデータが正常に入手できなかった場合
+                            playlist_title = ft.TextField(
+                                label="プレイリスト名",
+                                value="Unknown",
+                                adaptive=True,
+                            )
+                            playlist_date = ft.Text(
+                                value="Unknown",
+                            )
+                            playlist_uploader = ft.TextField(
+                                label="投稿者",
+                                value="Unknown",
+                                adaptive=True,
+                            )
+                            placeholder_playlist = self.compute_perfect_size(page, 0, 0, key)
+                            playlist_thumb_img = ft.Image(
+                                src=placeholder_playlist["src"],
+                                width=placeholder_playlist["width"],
+                                height=placeholder_playlist["height"],
+                                fit=ft.ImageFit.CONTAIN,
+                                border_radius=ft.border_radius.all(10),
+                            )
+                            playlist_rg = ft.RadioGroup(
+                                value=settings.content_type,
+                                content=ft.Row([
+                                    ft.Radio(value="movie", label="Movie"),
+                                    ft.Radio(value="music", label="Music"),
+                                ]),
+                            )
+                            # lambda式の「遅延束縛」を回避するためにデフォルト引数としてkeyをバインドする
+                            playlist_delete_icon = ft.IconButton(
+                                icon=ft.icons.DELETE_FOREVER_ROUNDED,
+                                on_click=lambda e, key=key: self.remove_card(e, key, page, url),
+                                tooltip="削除",
+                            )
+                            playlist_download_icon = ft.IconButton(
+                                icon=ft.icons.CLOUD_DOWNLOAD_ROUNDED,
+                                on_click=lambda e, key=key: self.download_video_by_key(e, key, page),
+                                tooltip="ダウンロード",
+                            )
+                            playlist_progress = ft.ProgressBar(
+                                visible=False,
+                                value=None,
+                            )
+                            playlist_progress_container = ft.Container(
+                                content=playlist_progress,
+                                expand=True,
+                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                border_radius=ft.border_radius.all(8),
+                            )
+                            playlist_about_info = ft.Column(
+                                controls=[
+                                    playlist_title,
+                                    ft.Row(
+                                        controls=[
+                                            playlist_uploader,
+                                            ft.Row(
+                                                controls=[
+                                                    playlist_rg,
+                                                    playlist_date,
+                                                ],
+                                                alignment=ft.MainAxisAlignment.END,
+                                            ),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    ),
+                                ],
+                                expand=True,
+                            )
+                            playlist_info = ft.Row(
+                                controls=[
+                                    playlist_thumb_img,
+                                    playlist_about_info,
+                                    ft.Column(
+                                        controls=[
+                                            playlist_download_icon,
+                                            playlist_delete_icon,
+                                        ],
+                                        alignment=ft.alignment.center,
+                                    ),
+                                ],
+                                alignment=ft.alignment.center,
+                            )
+                            playlist_card = ft.Card(
+                                key=key,
+                                content=ft.Container(
+                                    content=ft.Column(
+                                        controls=[
+                                            playlist_info,
+                                            playlist_progress_container,
+                                        ],
+                                        spacing=10,
+                                    ),
+                                    padding=4,
                                 ),
-                                padding=4,
-                            ),
-                            margin=0,
-                        )
-                        self.cards[key] = playlist_card
-                        self.downloader.cards[key] = playlist_card # こうすることで、DownloadクラスからCardの要素の操作ができる
-                        self.added_urls.append(url)
-                        page.add(playlist_card)
+                                margin=0,
+                            )
+                            self.cards[key] = playlist_card
+                            self.downloader.cards[key] = playlist_card # こうすることで、DownloadクラスからCardの要素の操作ができる
+                            self.added_urls.append(url)
+                            self.card_container.controls.append(playlist_card)
+                            page.update()
             except Exception as ex:
-                print(f"Error adding video card: {ex}")
+                self.logger.error(
+                    f"Error adding video card: {ex}",
+                    exc_info=True
+                )
+                err_dlg = ft.AlertDialog(
+                    title=ft.Text("エラー"),
+                    modal=True,
+                    content=ft.Text(f"エラーが発生しました。\n {ex}"),
+                    actions=[
+                        ft.TextButton(
+                            "閉じる", 
+                            on_click=lambda e, err_dlg=err_dlg: close_dlg(e, err_dlg, page)
+                        )
+                    ],
+                    actions_alignment=ft.MainAxisAlignment.END,
+                )
+                page.views[0].controls.append(err_dlg)
+                page.update()
             time.sleep(0.5) # 連続処理の負荷を軽減
     
     def handle_url_submit(self, e, tf, page):
@@ -1295,8 +1655,11 @@ class YDownloader:
                     self.pre_url_list.extend(valid_urls) # URLをリスト末尾に追加
                     self.condition_pre.notify() # 待機中のスレッドを起こす
         except Exception as ex:
-            print(f"Error in handle_url_submit: {ex}")
-            traceback.print_exc()
+            self.logger.error(
+                f"Error in handle_url_submit: {ex}",
+                exc_info=True
+            )
+            sys.exit(1) # プログラムの終了
     
     def handle_window_resize(self, e, page):
         """
@@ -1336,7 +1699,7 @@ class YDownloader:
                 data = json.load(f)
             if not all(k in data for k in ("title", "uploader", "url")):
                 raise AttributeError("JSONファイルにtitleまたはuploaderまたはurlのキーがありません。")
-            data["title"] = self.downloader._sanitize_filename(target_title.value)
+            data["title"] = sanitize_filename(target_title.value)
             # print(data["title"]) # デバッグ用
             data["uploader"] = target_uploader.value
             # print(data["uploader"]) # デバッグ用
@@ -1375,18 +1738,6 @@ class YDownloader:
                 raise AttributeError("keyの値が不正です。")
         except Exception as ex:
             raise ex
-    
-    def toggle_theme(self, e, page):
-        """Fletのページテーマを変更する"""
-        try:
-            if page.theme_mode == ft.ThemeMode.LIGHT:
-                page.theme_mode = ft.ThemeMode.DARK
-            else:
-                page.theme_mode = ft.ThemeMode.LIGHT
-            page.update()
-        except AttributeError as ex:
-            print(f"Error in toggle_theme: {ex}")
-            traceback.print_exc()
     
     def import_text_files(self, e, tf, page):
         """読み込むURLが記入されたテキストファイルを読み込んで、検索欄に追加"""
@@ -1457,12 +1808,58 @@ class YDownloader:
         except Exception as ex:
             raise ex
     
+    def go_to_setting_page(self, e, page: ft.Page):
+        # 設定ページをviewsに追加して遷移
+        page.views.append(self.settings_view(page))
+        page.update()
+    
+    def settings_view(self, page: ft.Page) -> ft.View:
+        # 設定ページの戻るボタン押下時の処理
+        def go_back(e):
+            page.views.pop() # 現在のビュー(設定ページ)を削除
+            page.update()
+        
+        # テーマ選択時の処理
+        def change_theme(e):
+            selected = e.control.value
+            if selected == "Light":
+                page.theme_mode = ft.ThemeMode.LIGHT
+            elif selected == "Dark":
+                page.theme_mode = ft.ThemeMode.DARK
+            page.update()
+        
+        theme_dropdown = ft.Dropdown(
+            label="テーマ選択",
+            options=[
+                ft.dropdown.Option("Light"),
+                ft.dropdown.Option("Dark"),
+            ],
+            value="Light" if page.theme_mode == ft.ThemeMode.LIGHT else "Dark",
+            on_change=change_theme
+        )
+        
+        settings_page = ft.View(
+            route="/settings",
+            controls=[
+                ft.AppBar(
+                    title=ft.Text("設定"),
+                    leading=ft.IconButton(
+                        icon=ft.icons.ARROW_BACK,
+                        on_click=go_back,
+                    ),
+                ),
+                theme_dropdown,
+            ],
+            scroll=ft.ScrollMode.ADAPTIVE,
+        )
+        return settings_page
+    
     def main(self, page: ft.Page):
         """
         Fletのページを構築するメインメソッド
         """
         page.title = "YDownloader"
-        page.scroll = "adaptive"
+        
         # ウィンドウのリサイズイベントを監視する(リサイズが完了したタイミングで実行されるようにする)
         page.on_resized = lambda e: self.handle_window_resize(e, page)
         # プログレスバーの作成(読み込みの進捗段階を表示する)
@@ -1502,19 +1899,29 @@ class YDownloader:
         )
         tt = ft.Container(
             content=t,
-            alignment=ft.alignment.center
+            alignment=ft.alignment.center,
         )
         
         # 設定ボタン(歯車アイコン)
         # 押すと設定ページに遷移できるようにする
-        setting_button = ft.IconButton(icon=ft.icons.SETTINGS_ROUNDED)
+        setting_button = ft.IconButton(
+            icon=ft.icons.SETTINGS_ROUNDED,
+            on_click=lambda e: self.go_to_setting_page(e, page),
+            tooltip="設定を開く",
+        )
         # stackを使用して、歯車アイコンを他のレイアウトに影響を与えることなく右上に配置する
         stack = ft.Stack(
             controls=[
                 tt, # 下層のレイアウト
                 setting_button, # このボタンが上に重ねられる
             ],
-            alignment=ft.alignment.top_right
+            alignment=ft.alignment.top_right,
+        )
+        
+        # 動的にCardを追加するためのコンテナ
+        self.card_container = ft.Column(
+            controls=[],
+            expand=True,
         )
         
         tf = ft.TextField(
@@ -1531,61 +1938,75 @@ class YDownloader:
         # 検索アイコンのボタン
         sb = ft.IconButton(
             icon=ft.icons.SEARCH_ROUNDED,
-            on_click=lambda e: self.handle_url_submit(e, tf, page)
+            on_click=lambda e: self.handle_url_submit(e, tf, page),
+            tooltip="検索"
         )
         # テキストファイル取り込みボタン
         ib = ft.IconButton(
             icon=ft.icons.DOWNLOAD_ROUNDED,
-            on_click=lambda e: self.import_text_files(e, tf, page)
+            on_click=lambda e: self.import_text_files(e, tf, page),
+            tooltip="テキストファイル取り込み",
         )
         all_download_icon = ft.IconButton(
             icon=ft.icons.CLOUD_DOWNLOAD_OUTLINED,
-            on_click=lambda e: self.all_download(e, page)
+            on_click=lambda e: self.all_download(e, page),
+            tooltip="すべてをダウンロード",
         )
         self.all_download_icon = all_download_icon
         all_delete_icon = ft.IconButton(
             icon=ft.icons.DELETE_FOREVER,
-            on_click=lambda e: self.all_remove(e, page)
+            on_click=lambda e: self.all_remove(e, page),
+            tooltip="すべてを削除",
         )
         self.all_delete_icon = all_delete_icon
         
-        # テーマ切り替えボタン
-        toggle_button = ft.ElevatedButton("テーマを切り替える", on_click=lambda e: self.toggle_theme(e, page))
-        
         # デフォルトのページテーマを読み込む
-        page.theme_mode = settings.page_theme
+        # ft.ThemeMode.LIGHTまたはft.ThemeMode.DARKが定義される
+        page.theme_mode = getattr(ft.ThemeMode, settings.page_theme, None)
+        if not page.theme_mode:
+            raise AttributeError("page.theme_modeの値が不正です。")
         
-        page.add(
-            stack,
-            ft.Card(
-                content=ft.Container(
+        # メインページのレイアウトをViewにまとめる
+        main_view = ft.View(
+            route="/",
+            controls=[
+                stack,
+                ft.Card(
+                    content=ft.Container(
+                        content=ft.Row(
+                            controls=[
+                                tf,
+                                sb,
+                            ], spacing=20,
+                        ), padding=10,
+                    ), margin=5,
+                ),
+                ft.Container(
                     content=ft.Row(
                         controls=[
-                            tf,
-                            sb,
-                        ], spacing=20,
+                            progress,
+                            ib,
+                            all_download_icon,
+                            all_delete_icon,
+                        ],
+                        spacing=20,
+                        alignment=ft.MainAxisAlignment.END,
                     ), padding=10,
-                ), margin=5,
-            ),
-            ft.Container(
-                content=ft.Row(
-                    controls=[
-                        progress,
-                        ib,
-                        all_download_icon,
-                        all_delete_icon,
-                    ],
-                    spacing=20,
-                    alignment=ft.MainAxisAlignment.END,
-                ), padding=10,
-            ),
+                ),
+                # ここにvideo_cardを動的に追加する
+                self.card_container, 
+            ],
+            scroll=ft.ScrollMode.ADAPTIVE,
         )
+        
+        page.views.append(main_view)
+        page.update()
         
         # URL監視スレッドの起動
         processing_thread = threading.Thread(
             target=self.add_video_card,
             args=(page,),
-            daemon=True
+            daemon=True,
         )
         processing_thread.start()
 
@@ -1601,6 +2022,7 @@ if __name__ == "__main__":
         from yt_dlp import YoutubeDL
     except Exception as ex:
         raise ImportError(f"yt-dlp の import に失敗しました。externalディレクトリ({EXTERNAL_PATH})内に正しく配置されているか確認してください。") from ex
+    setup_logging()
     settings = DefaultSettingsLoader()
     downloader = Download(settings)
     app = YDownloader(settings, downloader)
