@@ -28,12 +28,16 @@ jobs:
       - name: Install Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Extract version from pyproject.toml
+        id: get_version
+        run: echo "VERSION=$(python -c 'import tomllib; f = open(\"pyproject.toml\", \"rb\"); config = tomllib.load(f); f.close(); print(config[\"project\"][\"version\"])')" >> $GITHUB_ENV
 
       - name: Determine OS for flet build
         id: set-os
@@ -47,8 +51,11 @@ jobs:
             echo "os=linux" >> $GITHUB_OUTPUT
           fi
 
+      - name: Create build directory if not exists
+        run: mkdir -p build/${{ steps.set-os.outputs.os }}
+
       - name: Build executable with flet
-        run: flet build ${{ steps.set-os.outputs.os }} --build-version 1.0.0
+        run: flet build ${{ steps.set-os.outputs.os }} --output build/${{ steps.set-os.outputs.os }}
 
       # --- インストーラー作成 ---
       # Windows 用（NSIS を利用）
@@ -59,7 +66,7 @@ jobs:
           choco install nsis -y
           REM ※ 以下は NSIS スクリプトの例です。build 時の出力パス（ここでは build\windows\YDownloader.exe ）は環境に合わせて調整してください。
           echo '!define PRODUCT_NAME "YDownloader"' > installer.nsi
-          echo '!define VERSION "1.0.0"' >> installer.nsi
+          echo '!define VERSION "${{ env.VERSION }}"' >> installer.nsi
           echo '!define INSTALL_DIR "$PROGRAMFILES\YDownloader"' >> installer.nsi
           echo '!define CONFIG_DIR "$LOCALAPPDATA\YDownloader"' >> installer.nsi
           echo 'OutFile "YDownloader-Installer.exe"' >> installer.nsi
@@ -69,8 +76,9 @@ jobs:
           echo 'Section "Install"' >> installer.nsi
           echo '  SetOutPath ${INSTALL_DIR}' >> installer.nsi
           echo '  File "build\windows\YDownloader.exe"' >> installer.nsi
-          echo '  SetOutPath ${CONFIG_DIR}' >> installer.nsi
+          echo '  SetOutPath ${CONFIG_DIR}\configs' >> installer.nsi
           echo '  File /r "configs\*.*"' >> installer.nsi
+          echo '  SetOutPath ${CONFIG_DIR}\external' >> installer.nsi
           echo '  File /r "external\*.*"' >> installer.nsi
           echo 'SectionEnd' >> installer.nsi
           makensis installer.nsi
@@ -88,7 +96,7 @@ jobs:
           cp -R configs pkgroot/Library/Application\ Support/YDownloader/
           cp -R external pkgroot/Library/Application\ Support/YDownloader/
           # ※ postinstall スクリプト等を追加すれば、より細かい処理も可能です
-          pkgbuild --root pkgroot --identifier com.example.ydownloader --version 1.0.0 --install-location / YDownloader-Installer.pkg
+          pkgbuild --root pkgroot --identifier com.ydownloader.app --version $VERSION --install-location / YDownloader-Installer.pkg
 
       # Linux 用（tar.gz による簡易インストーラー例）
       - name: Create installer for Linux
@@ -98,9 +106,12 @@ jobs:
           cp build/linux/YDownloader installer/opt/YDownloader/
           # Linux では、configs と external を /etc/ydownloader 等へ配置する例
           mkdir -p installer/etc/ydownloader
-          cp -r configs external installer/etc/ydownloader/
+          cp -R configs installer/etc/ydownloader/
+          cp -R external installer/etc/ydownloader/
+          # installer フォルダ以下を tar.gz 形式に圧縮
           tar czvf YDownloader-Installer.tar.gz -C installer .
 
+      # ここから先はまだ確認の必要あり
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
@@ -110,6 +121,7 @@ jobs:
             YDownloader-Installer.pkg
             YDownloader-Installer.tar.gz
 
+  # まだ確認の必要あり
   # --- GitHub Pages 用サイトの自動生成 ---
   publish:
     needs: build

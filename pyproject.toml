@@ -9,7 +9,9 @@ authors = [
     { name = "ShiningWank0" }
 ]
 dependencies = [
-  "flet"
+  "appdirs==1.4.4",
+  "flet==0.24.1",
+  "Pillow==9.2.0"
 ]
 
 [tool.flet]
