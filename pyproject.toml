@@ -1,0 +1,20 @@
+[project]
+name = "YDownloader"
+version = "1.0.0"
+description = "A GUI-based downloader using Flet, yt-dlp, and FFmpeg"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "ShiningWank0" }
+]
+dependencies = [
+  "flet"
+]
+
+[tool.flet]
+product = "YDownloader"
+copyright = "Copyright (C) 2025 by ShiningWank0"
+
+[tool.flet.app]
+path = "src"
