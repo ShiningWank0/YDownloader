@@ -1,2 +1,0 @@
-python -m nuitka --standalone --windows-icon-from-ico=icon.ico --include-data-dir=assets=assets --include-data-dir=configs=configs --include-data-dir=external=external --windows-console-mode=disable --enab
-le-plugin=tk-inter --output-filename=YDownloader.exe main.py
