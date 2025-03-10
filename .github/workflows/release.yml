@@ -36,6 +36,7 @@ jobs:
       #   run: flutter pub get
 
       - name: Install dependencies for each OS
+        shell: bash
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             echo "Installing Windows dependencies"
