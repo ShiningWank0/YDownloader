@@ -25,12 +25,12 @@ jobs:
         uses: flutter-actions/setup-flutter@v4
         with:
           channel: 'stable'
-          version: latest
+          version: 3.19.3
 
-      - name: Upgrade Flutter and show version
-        run: |
-          flutter upgrade
-          flutter --version
+      # - name: Upgrade Flutter and show version
+      #   run: |
+      #     flutter upgrade
+      #     flutter --version
 
       # - name: Install Flutter dependencies
       #   run: flutter pub get
