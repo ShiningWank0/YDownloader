@@ -29,14 +29,22 @@ jobs:
       - name: Install dependencies for Pillow (Linux and macOS)
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo "Installing Windows dependencies"
+            echo "Enabling Developer Mode"
+            reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /v AllowDevelopmentWithoutDevLicense /d 1 /f
             echo "Run on Windows"
           elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            echo "Installing macOS dependencies"
             brew install libjpeg libpng libtiff freetype
+            sudo softwareupdate --install-rosetta --agree-to-license
             echo "Run on macOS"
           else
+            echo "Installing Linux dependencies"
             sudo apt-get update
             sudo apt-get install -y libjpeg-dev libpng-dev libtiff-dev zlib1g-dev libfreetype6-dev
-            echo "Run on Windows"
+            apt install libgtk-3-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+            sudo apt install libmpv-dev mpv
+            echo "Run on Linux"
           fi
 
       - name: Install Python
