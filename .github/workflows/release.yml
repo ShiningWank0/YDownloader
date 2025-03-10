@@ -16,11 +16,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Flutter SDK セットアップ versionは数字できちんと修正する事
       - name: Setup Flutter SDK
         uses: flutter-actions/setup-flutter@v4
         with:
           channel: 'stable'
-          version: 'stable'
+          version: 3.0.2
 
       - name: Install Flutter dependencies
         run: flutter pub get
