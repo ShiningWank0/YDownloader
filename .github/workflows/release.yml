@@ -122,37 +122,39 @@ jobs:
       # Windows 用（NSIS を利用）
       - name: Create installer for Windows
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
           # NSIS のインストール（Chocolatey 経由）
           choco install nsis -y
           # 環境変数からバージョンを変数に入れる(PowerShellでの変数展開問題を回避)
-          VERSION="${{ env.VERSION  }}"
+          $VERSION = "${{ env.VERSION  }}"
           # NSISスクリプトを作成(バージョン変数を正しく設定)
           # build 時の出力パスはここでは build\windows\YDownloader.exe
-          cat > installer.nsi << EOF
+          $installerScript = @"
           !define PRODUCT_NAME "YDownloader"
-          !define VERSION "${VERSION}"
-          !define INSTALL_DIR "\$PROGRAMFILES\\YDownloader"
-          !define CONFIG_DIR "\$LOCALAPPDATA\\YDownloader"
-          OutFile "YDownloader-${VERSION}-Installer.exe"
+          !define VERSION "$VERSION"
+          !define INSTALL_DIR "\$PROGRAMFILES\YDownloader"
+          !define CONFIG_DIR "\$LOCALAPPDATA\YDownloader"
+          OutFile "YDownloader-$VERSION-Installer.exe"
           InstallDir \${INSTALL_DIR}
           Page directory
           Page instfiles
           Section "Install"
             SetOutPath \${INSTALL_DIR}
-            File "build\\windows\\YDownloader.exe"
-            SetOutPath \${CONFIG_DIR}\\configs
-            File /r "configs\\*.*"
-            SetOutPath \${CONFIG_DIR}\\external
-            File /r "external\\*.*"
+            File "build\windows\YDownloader.exe"
+            SetOutPath \${CONFIG_DIR}\configs
+            File /r "configs\*.*"
+            SetOutPath \${CONFIG_DIR}\external
+            File /r "external\*.*"
           SectionEnd
-          EOF
+          "@
           # NSISでインストーラーをビルド
-          makensis installer.nsi
+          $installerScript | Out-File -FilePath installer.nsi -Encoding UTF8
 
       # macOS 用（pkg ビルダーを利用）
       - name: Create installer for macOS
         if: runner.os == 'macOS'
+        shell: bash
         run: |
           # 環境変数からバージョンを変数に入れる
           VERSION="${{ env.VERSION }}"
@@ -170,6 +172,7 @@ jobs:
       # Linux 用（tar.gz による簡易インストーラー例）
       - name: Create installer for Linux
         if: runner.os == 'Linux'
+        shell: bash
         run: |
           # 環境変数からバージョンを変数に入れる
           VERSION="${{ env.VERSION }}"
