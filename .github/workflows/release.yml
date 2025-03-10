@@ -181,7 +181,7 @@ jobs:
           # 環境変数からバージョンを変数に入れる
           VERSION="${{ env.VERSION }}"
           mkdir -p installer/opt/YDownloader
-          cp build/linux installer/opt/YDownloader/
+          cp -R build/linux installer/opt/YDownloader/
           # Linux では、configs と external を /etc/ydownloader 等へ配置する例
           mkdir -p installer/etc/ydownloader
           cp -R configs installer/etc/ydownloader/
