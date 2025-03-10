@@ -2125,7 +2125,7 @@ class YDownloader:
         # ここでprogress.visibleとしてしまうと、インスタンス化できないので、ページの繁栄ができない
         self.progress = progress # これでprogressのvisibleを操作する
         # フォントの読み込み
-        font_dir = os.path.join(get_script_dir(), "assets", "fonts", "ZenOldMincho")
+        font_dir = os.path.join(get_script_dir(), "src", "assets", "fonts", "ZenOldMincho")
         page.fonts = {
             "ZenOldMincho-Black": os.path.join(font_dir, "ZenOldMincho-Black.ttf"),
             "ZenOldMincho-Bold": os.path.join(font_dir, "ZenOldMincho-Bold.ttf"),
