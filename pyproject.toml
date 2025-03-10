@@ -18,5 +18,16 @@ dependencies = [
 product = "YDownloader"
 copyright = "Copyright (C) 2025 by ShiningWank0"
 
+[tool.flet.flutter.dependencies]
+flet_video = "1.0.0"
+flet_audio = "2.0.0"
+
 [tool.flet.app]
 path = "src"
+
+[tool.flet.macos]
+build_arch = "arm64"
+entitlement."com.apple.security.files.user-selected.read-write" = true
+entitlement."com.apple.security.network.client" = true
+entitlement."com.apple.security.app-sandbox" = true
+entitlement."com.apple.security.files.downloads.read-write" = true
