@@ -26,6 +26,19 @@ jobs:
       # - name: Install Flutter dependencies
       #   run: flutter pub get
 
+      - name: Install dependencies for Pillow (Linux and macOS)
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo "Run on Windows"
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            brew install libjpeg libpng libtiff freetype
+            echo "Run on macOS"
+          else
+            sudo apt-get update
+            sudo apt-get install -y libjpeg-dev libpng-dev libtiff-dev zlib1g-dev libfreetype6-dev
+            echo "Run on Windows"
+          fi
+
       - name: Install Python
         uses: actions/setup-python@v5
         with:
