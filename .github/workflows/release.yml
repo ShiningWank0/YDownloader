@@ -23,8 +23,8 @@ jobs:
           channel: 'stable'
           version: 3.0.2
 
-      - name: Install Flutter dependencies
-        run: flutter pub get
+      # - name: Install Flutter dependencies
+      #   run: flutter pub get
 
       - name: Install Python
         uses: actions/setup-python@v5
