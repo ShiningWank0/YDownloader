@@ -7,6 +7,10 @@ on:
 
 jobs:
   build:
+    permissions:
+      id-token: write
+      pages: write
+      contents: write
     # 各 OS でビルドするためのマトリクス
     strategy:
       matrix:
@@ -161,6 +165,7 @@ jobs:
     permissions:
       id-token: write
       pages: write
+      contents: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

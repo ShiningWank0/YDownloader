@@ -25,7 +25,7 @@ from tkinter import filedialog
 from concurrent.futures import ThreadPoolExecutor
 
 """
-Nuitkaを使用したFletデスクトップアプリのパック
+Nuitkaを使用したFletデスクトップアプリのパック → flet build を利用する方法に変更
 https://github.com/flet-dev/flet/discussions/1314
 Pythonのexe化について
 https://zenn.dev/kitagawadisk/articles/aead46336ce3b7
