@@ -10,7 +10,7 @@ authors = [
 ]
 dependencies = [
   "appdirs",
-  "flet==0.24.1",
+  "flet==0.27.5",
   "Pillow"
 ]
 
