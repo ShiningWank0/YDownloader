@@ -43,6 +43,8 @@ jobs:
           echo "Enabling Developer Mode"
           reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /v AllowDevelopmentWithoutDevLicense /d 1 /f
           echo "Run on Windows and installed dependencies for Windows"
+          $OutputEncoding = New-Object -typename System.Text.UTF8Encoding
+          echo "Set Encoding for UTF-8"
 
       - name: Install dependencies for macOS
         if: runner.os == 'macOS'
