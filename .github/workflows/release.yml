@@ -37,7 +37,10 @@ jobs:
 
       - name: Extract version from pyproject.toml
         id: get_version
-        run: echo "VERSION=$(python -c 'import tomllib; f = open(\"pyproject.toml\", \"rb\"); config = tomllib.load(f); f.close(); print(config[\"project\"][\"version\"])')" >> $GITHUB_ENV
+        run: |
+          VERSION=$(python -c 'import tomllib; f = open("pyproject.toml", "rb"); config = tomllib.load(f); f.close(); print(config["project"]["version"])')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Version extracted: $VERSION"
 
       - name: Determine OS for flet build
         id: set-os
@@ -64,29 +67,37 @@ jobs:
         run: |
           # NSIS のインストール（Chocolatey 経由）
           choco install nsis -y
-          REM ※ 以下は NSIS スクリプトの例です。build 時の出力パス（ここでは build\windows\YDownloader.exe ）は環境に合わせて調整してください。
-          echo '!define PRODUCT_NAME "YDownloader"' > installer.nsi
-          echo '!define VERSION "${{ env.VERSION }}"' >> installer.nsi
-          echo '!define INSTALL_DIR "$PROGRAMFILES\YDownloader"' >> installer.nsi
-          echo '!define CONFIG_DIR "$LOCALAPPDATA\YDownloader"' >> installer.nsi
-          echo 'OutFile "YDownloader-Installer.exe"' >> installer.nsi
-          echo 'InstallDir ${INSTALL_DIR}' >> installer.nsi
-          echo 'Page directory' >> installer.nsi
-          echo 'Page instfiles' >> installer.nsi
-          echo 'Section "Install"' >> installer.nsi
-          echo '  SetOutPath ${INSTALL_DIR}' >> installer.nsi
-          echo '  File "build\windows\YDownloader.exe"' >> installer.nsi
-          echo '  SetOutPath ${CONFIG_DIR}\configs' >> installer.nsi
-          echo '  File /r "configs\*.*"' >> installer.nsi
-          echo '  SetOutPath ${CONFIG_DIR}\external' >> installer.nsi
-          echo '  File /r "external\*.*"' >> installer.nsi
-          echo 'SectionEnd' >> installer.nsi
+          # 環境変数からバージョンを変数に入れる(PowerShellでの変数展開問題を回避)
+          VERSION="${{ env.VERSION  }}"
+          # NSISスクリプトを作成(バージョン変数を正しく設定)
+          # build 時の出力パスはここでは build\windows\YDownloader.exe
+          cat > installer.nsi << EOF
+          !define PRODUCT_NAME "YDownloader"
+          !define VERSION "${VERSION}"
+          !define INSTALL_DIR "\$PROGRAMFILES\\YDownloader"
+          !define CONFIG_DIR "\$LOCALAPPDATA\\YDownloader"
+          OutFile "YDownloader-${VERSION}-Installer.exe"
+          InstallDir \${INSTALL_DIR}
+          Page directory
+          Page instfiles
+          Section "Install"
+            SetOutPath \${INSTALL_DIR}
+            File "build\\windows\\YDownloader.exe"
+            SetOutPath \${CONFIG_DIR}\\configs
+            File /r "configs\\*.*"
+            SetOutPath \${CONFIG_DIR}\\external
+            File /r "external\\*.*"
+          SectionEnd
+          EOF
+          # NSISでインストーラーをビルド
           makensis installer.nsi
 
       # macOS 用（pkg ビルダーを利用）
       - name: Create installer for macOS
         if: runner.os == 'macOS'
         run: |
+          # 環境変数からバージョンを変数に入れる
+          VERSION="${{ env.VERSION }}"
           # pkgbuild でインストーラー作成するための一時フォルダを用意
           mkdir -p pkgroot/Applications
           # flet build で作成された .app を Applications 配下へコピー
@@ -96,12 +107,14 @@ jobs:
           cp -R configs pkgroot/Library/Application\ Support/YDownloader/
           cp -R external pkgroot/Library/Application\ Support/YDownloader/
           # ※ postinstall スクリプト等を追加すれば、より細かい処理も可能です
-          pkgbuild --root pkgroot --identifier com.ydownloader.app --version $VERSION --install-location / YDownloader-Installer.pkg
+          pkgbuild --root pkgroot --identifier com.ydownloader.app --version "${VERSION}" --install-location / YDownloader-${VERSION}-Installer.pkg
 
       # Linux 用（tar.gz による簡易インストーラー例）
       - name: Create installer for Linux
         if: runner.os == 'Linux'
         run: |
+          # 環境変数からバージョンを変数に入れる
+          VERSION="${{ env.VERSION }}"
           mkdir -p installer/opt/YDownloader
           cp build/linux/YDownloader installer/opt/YDownloader/
           # Linux では、configs と external を /etc/ydownloader 等へ配置する例
@@ -109,42 +122,124 @@ jobs:
           cp -R configs installer/etc/ydownloader/
           cp -R external installer/etc/ydownloader/
           # installer フォルダ以下を tar.gz 形式に圧縮
-          tar czvf YDownloader-Installer.tar.gz -C installer .
+          tar czvf YDownloader-${VERSION}-Installer.tar.gz -C installer .
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Installer-${{ steps.set-os.outputs.os }}
+          name: Installer-${{ steps.set-os.outputs.os }}-${{ env.VERSION }}
           path: |
-            YDownloader-Installer.exe
-            YDownloader-Installer.pkg
-            YDownloader-Installer.tar.gz
+            YDownloader-*-Installer.exe
+            YDownloader-*-Installer.pkg
+            YDownloader-*-Installer.tar.gz
 
-  # まだ確認の必要あり
   # --- GitHub Pages 用サイトの自動生成 ---
   publish:
     needs: build
+    permissions:
+      id-token: write
+      pages: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Extract version from pyproject.toml
+        id: get_version
+        run: |
+          VERSION=$(python -c 'import tomllib; f = open("pyproject.toml", "rb"); config = tomllib.load(f); f.close(); print(config["project"]["version"])')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Version extracted: $VERSION"
+
       - name: Download all installer artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: installers
+
+      - name: Move installers to root directory
+        run: |
+          mkdir -p releases
+          find installers -type f -name "YDownloader-*" -exec cp {} releases/ \;
 
       - name: Generate index.html for download site
         run: |
           mkdir -p gh-pages
-          echo "<html><head><title>YDownloader Installers</title></head><body>" > gh-pages/index.html
-          echo "<h1>YDownloader Installers</h1><ul>" >> gh-pages/index.html
-          for file in $(find installers -type f); do
-            fname=$(basename "$file")
-            echo "<li><a href=\"$fname\">$fname</a></li>" >> gh-pages/index.html
-          done
-          echo "</ul></body></html>" >> gh-pages/index.html
+          # 各OSのインストーラーのファイル名を取得
+          WIN_FILE=$(find releases -maxdepth 1 -type f -name "*.exe" | head -n1)
+          LINUX_FILE=$(find releases -maxdepth 1 -type f -name "*.tar.gz" | head -n1)
+          MAC_FILE=$(find releases -maxdepth 1 -type f -name "*.pkg" | head -n1)
+          WIN_BASENAME=$(basename "$WIN_FILE")
+          LINUX_BASENAME=$(basename "$LINUX_FILE")
+          MAC_BASENAME=$(basename "$MAC_FILE")
+          cat > gh-pages/index.html << EOF
+          <!DOCTYPE html>
+          <html lang="ja">
+            <head>
+              <meta charset="utf-8">
+              <title>YDownloader Installers</title>
+              <style>
+                body { font-family: Arial, sans-serif; text-align: center; margin: 40px; }
+                .container { display: flex; justify-content: center; gap: 20px; }
+                .os-box { width: 300px; }
+                .os-box img { width: 150px; height: 150px; }
+                .os-box button { margin-top: 20px; padding: 10px 20px; font-size: 16px; cursor: pointer; }
+              </style>
+            </head>
+            <body>
+              <h1>YDownloader Installers</h1>
+              <div class="container">
+                <!-- Windows column -->
+                <div class="os-box">
+                  <img src="OS-Logos/Windows-11-Logo.png" alt="Windows Logo">
+                  <br>
+                  <a href="$WIN_BASENAME"><button>Download for Windows</button></a>
+                </div>
+                <!-- Linux column -->
+                <div class="os-box">
+                  <div class="os-box">
+                  <br>
+                  <a href="$LINUX_BASENAME"><button>Download for Linux</button></a>
+                </div>
+                <!-- macOS column -->
+                <div class="os-box">
+                  <img src="OS-Logos/macOS-Logo.png" alt="macOS Logo">
+                  <br>
+                  <a href="$MAC_BASENAME"><button>Download for macOS</button></a>
+                </div>
+              </div>
+            </body>
+          </html>
+          EOF
+
+      - name: Upload GitHub Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: gh-pages
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      # GitHub Pages の URL を表示
+      - name: Display GitHub Pages URL
+        run: |
+          echo "GitHub Pages URL: ${{ steps.deployment.outputs.page_url }}"
+
+      # GitHub Release の作成
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: gh-pages
-          publish_branch: gh-pages
+          tag: v${{ env.VERSION }}
+          release_name: Release ${{ env.VERSION }}
+          body: Installer build for version ${{ env.VERSION }} is available.
+          artifacts: releases/*
+
+
