@@ -111,6 +111,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           $OutputEncoding = New-Object -typename System.Text.UTF8Encoding
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           flet build ${{ steps.set-os.outputs.os }} --output build/${{ steps.set-os.outputs.os }}
 
       - name: Build executable with flet on macOS or Linux
