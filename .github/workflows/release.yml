@@ -28,7 +28,7 @@ jobs:
         uses: flutter-actions/setup-flutter@v4
         with:
           channel: 'stable'
-          version: 3.22.0
+          version: 3.27.4
 
       # - name: Upgrade Flutter and show version
       #   run: |
