@@ -43,9 +43,6 @@ jobs:
           echo "Enabling Developer Mode"
           reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /v AllowDevelopmentWithoutDevLicense /d 1 /f
           echo "Run on Windows and installed dependencies for Windows"
-          $OutputEncoding = [System.Text.Encoding]::UTF8
-          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-          echo "Set Encoding for UTF-8"
 
       - name: Install dependencies for macOS
         if: runner.os == 'macOS'
@@ -87,16 +84,8 @@ jobs:
           reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /v AllowDevelopmentWithoutDevLicense /d 1 /f
           echo "Version extracted: $VERSION"
 
-      - name: Extract version from pyproject.toml on macOS
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          VERSION=$(python -c 'import tomllib; f = open("pyproject.toml", "rb"); config = tomllib.load(f); f.close(); print(config["project"]["version"])')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "Version extracted: $VERSION"
-
-      - name: Extract version from pyproject.toml on Linux
-        if: runner.os == 'Linux'
+      - name: Extract version from pyproject.toml on macOS or Linux
+        if: runner.os == 'macOS' || runner.os == 'Linux'
         shell: bash
         run: |
           VERSION=$(python -c 'import tomllib; f = open("pyproject.toml", "rb"); config = tomllib.load(f); f.close(); print(config["project"]["version"])')
@@ -118,8 +107,16 @@ jobs:
       - name: Create build directory if not exists
         run: mkdir -p build/${{ steps.set-os.outputs.os }}
 
-      - name: Build executable with flet
-        run: flet build ${{ steps.set-os.outputs.os }} --output build/${{ steps.set-os.outputs.os }}
+      - name: Build executable with flet on Windows
+        if: runner.os == 'Windows'
+        run: |
+          $OutputEncoding = New-Object -typename System.Text.UTF8Encoding
+          flet build ${{ steps.set-os.outputs.os }} --output build/${{ steps.set-os.outputs.os }}
+
+      - name: Build executable with flet on macOS or Linux
+        if: runner.os == 'macOS' || runner.os == 'Linux'
+        run: |
+          flet build ${{ steps.set-os.outputs.os }} --output build/${{ steps.set-os.outputs.os }}
 
       # --- インストーラー作成 ---
       # Windows 用（NSIS を利用）
