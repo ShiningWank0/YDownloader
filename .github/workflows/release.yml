@@ -35,28 +35,35 @@ jobs:
       # - name: Install Flutter dependencies
       #   run: flutter pub get
 
-      - name: Install dependencies for each OS
+      - name: Install dependencies for Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          echo "Installing Windows dependencies"
+          echo "Enabling Developer Mode"
+          reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /v AllowDevelopmentWithoutDevLicense /d 1 /f
+          echo "Run on Windows and installed dependencies for Windows"
+
+      - name: Install dependencies for macOS
+        if: runner.os == 'macOS'
         shell: bash
         run: |
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            echo "Installing Windows dependencies"
-            echo "Enabling Developer Mode"
-            reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /v AllowDevelopmentWithoutDevLicense /d 1 /f
-            echo "Run on Windows"
-          elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            echo "Installing macOS dependencies"
-            brew install libjpeg libpng libtiff freetype
-            sudo softwareupdate --install-rosetta --agree-to-license
-            echo "Run on macOS"
-          else
-            echo "Installing Linux dependencies"
-            sudo apt-get update
-            sudo apt-get install -y libjpeg-dev libpng-dev libtiff-dev zlib1g-dev libfreetype6-dev
-            sudo apt install libgtk-3-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
-            sudo apt install libmpv-dev mpv
-            sudo apt-get install -y ninja-build g++ cmake clang
-            echo "Run on Linux"
-          fi
+          echo "Installing macOS dependencies"
+          brew install libjpeg libpng libtiff freetype
+          sudo softwareupdate --install-rosetta --agree-to-license
+          echo "Run on macOS and installed dependencies for macOS"
+
+      - name: Install dependencies for Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          echo "Installing Linux dependencies"
+          sudo apt-get update
+          sudo apt-get install -y libjpeg-dev libpng-dev libtiff-dev zlib1g-dev libfreetype6-dev
+          sudo apt install libgtk-3-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+          sudo apt install libmpv-dev mpv
+          sudo apt-get install -y ninja-build g++ cmake clang
+          echo "Run on Linux and installed dependencies for Linux"
 
       - name: Install Python
         uses: actions/setup-python@v5
